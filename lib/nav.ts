@@ -55,9 +55,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Inventario",
     modulo: "inventario",
     items: [
-      { label: "Productos",    href: "/dashboard/inventario/productos",   implemented: false },
-      { label: "Bodegas",      href: "/dashboard/inventario/bodegas",     implemented: false },
-      { label: "Movimientos",  href: "/dashboard/inventario/movimientos", implemented: false },
+      { label: "Saldos / Kardex", href: "/dashboard/inventario/saldos",      implemented: true  },
+      { label: "Productos",       href: "/dashboard/inventario/productos",    implemented: false },
+      { label: "Bodegas",         href: "/dashboard/inventario/bodegas",      implemented: false },
+      { label: "Movimientos",     href: "/dashboard/inventario/movimientos",  implemented: false },
     ],
   },
   {

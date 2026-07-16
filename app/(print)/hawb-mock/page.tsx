@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 
@@ -29,7 +29,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
       </colgroup>
       <tbody>
 
-        {/* ── FILA 1: MAWB ref + HAWB número ─────────────────────────── */}
+        {/* â”€â”€ FILA 1: MAWB ref + HAWB nÃºmero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={1} style={S.td({ borderRight: "none", paddingBottom: 3 })}>
             <span style={S.lbl}>Prefix</span>
@@ -46,14 +46,14 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 2: Shipper + Legal ──────────────────────────────────── */}
+        {/* â”€â”€ FILA 2: Shipper + Legal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={12} style={S.td({ minHeight: 48 })}>
             <span style={S.lbl}>Shipper's Name and Address</span>
             <div style={S.valBold}>CENTAK ANDINA SAS</div>
             <div style={S.valSm}>NIT 830090909-5</div>
             <div style={S.valSm}>AV CL 24 95 - 12 BODEGA 14</div>
-            <div style={S.valSm}>servicioalcliente@centakandina.com · Tel: (601) 4284451</div>
+            <div style={S.valSm}>servicioalcliente@centakandina.com Â· Tel: (601) 4284451</div>
             <div style={S.valSm}>BOGOTA - COLOMBIA</div>
           </td>
           <td colSpan={2} style={S.td()}>
@@ -70,12 +70,12 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 3: Consignee ────────────────────────────────────────── */}
+        {/* â”€â”€ FILA 3: Consignee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={12} style={S.td({ minHeight: 48 })}>
             <span style={S.lbl}>Consignee's Name and Address</span>
             <div style={S.valBold}>MATRICERIA INDUSTRIAL ROXY, S.A. DE C.V.</div>
-            <div style={S.valSm}>TAX Number: 0614-271176-001-9 · Postal Code: 1101</div>
+            <div style={S.valSm}>TAX Number: 0614-271176-001-9 Â· Postal Code: 1101</div>
             <div style={S.valSm}>CARR. TRONCAL DEL NORTE KM. 7 1/2, CIUDAD DELGADO</div>
             <div style={S.valSm}>Phone: +503 2298-1081</div>
             <div style={S.valSm}>SAN SALVADOR - EL SALVADOR</div>
@@ -85,18 +85,18 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 4: Issuing Agent ────────────────────────────────────── */}
+        {/* â”€â”€ FILA 4: Issuing Agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={14} style={S.td()}>
             <span style={S.lbl}>Issuing Carrier's Agent Name and City</span>
             <div style={S.valBold}>UNIVERSAL CARGO COLOMBIA S.A.S</div>
-            <div style={S.valSm}>NIT: 901.702.367 · CRA 106 # 15a - 25 mzn 24 BOD 143</div>
-            <div style={S.valSm}>julian.fontecha@universalcargo.com.co · TEL: 314 3045776 · BOGOTA-COLOMBIA</div>
+            <div style={S.valSm}>NIT: 901.702.367 Â· CRA 106 # 15a - 25 mzn 24 BOD 143</div>
+            <div style={S.valSm}>julian.fontecha@universalcargo.com.co Â· TEL: 314 3045776 Â· BOGOTA-COLOMBIA</div>
           </td>
           <td colSpan={6} style={S.td({ background: "#fafafa" })} />
         </tr>
 
-        {/* ── FILA 5: Agent IATA / Account / Accounting Info ──────────── */}
+        {/* â”€â”€ FILA 5: Agent IATA / Account / Accounting Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={4} style={S.td()}>
             <span style={S.lbl}>Agent's IATA Code</span>
@@ -110,14 +110,14 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 6: Airport of Departure label ──────────────────────── */}
+        {/* â”€â”€ FILA 6: Airport of Departure label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={20} style={S.td({ padding: "1px 4px", background: "#f0f4ff" })}>
             <span style={S.lbl}>Airport of Departure (Addr. of First Carrier) and Requested Routing</span>
           </td>
         </tr>
 
-        {/* ── FILA 7: Routing ──────────────────────────────────────────── */}
+        {/* â”€â”€ FILA 7: Routing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={5} style={S.td()}>
             <div style={S.valSm}>EL DORADO</div>
@@ -162,7 +162,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 8: Destino / Vuelo / Insurance ─────────────────────── */}
+        {/* â”€â”€ FILA 8: Destino / Vuelo / Insurance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={6} style={S.td()}>
             <span style={S.lbl}>Airport of Destination</span>
@@ -180,11 +180,11 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
           <td colSpan={5} style={S.td()}>
             <span style={S.lbl}>Amount of Insurance</span>
-            <div style={{ fontSize: "5pt", color: "#999", lineHeight: 1.3 }}>INSURANCE – if carrier offers insurance, indicate amount to be insured.</div>
+            <div style={{ fontSize: "5pt", color: "#999", lineHeight: 1.3 }}>INSURANCE â€“ if carrier offers insurance, indicate amount to be insured.</div>
           </td>
         </tr>
 
-        {/* ── FILA 9: Handling ─────────────────────────────────────────── */}
+        {/* â”€â”€ FILA 9: Handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={20} style={S.td({ background: "#f8fafc" })}>
             <span style={S.lbl}>Handling Information</span>
@@ -192,7 +192,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 10: Header tabla cargo ──────────────────────────────── */}
+        {/* â”€â”€ FILA 10: Header tabla cargo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr style={{ background: "#f0f4ff" }}>
           <td colSpan={2} style={S.td({ textAlign: "center" })}>
             <span style={S.section}>No. of<br />Pieces<br />RCP</span>
@@ -221,7 +221,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 11: Datos cargo ─────────────────────────────────────── */}
+        {/* â”€â”€ FILA 11: Datos cargo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr style={{ height: 38 }}>
           <td colSpan={2} style={S.td({ textAlign: "center" })}>
             <div style={{ fontSize: "11pt", fontWeight: 700 }}>12</div>
@@ -251,7 +251,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── FILA 12: Totales cargo ───────────────────────────────────── */}
+        {/* â”€â”€ FILA 12: Totales cargo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr style={{ background: "#f8fafc" }}>
           <td colSpan={2} style={S.td({ textAlign: "center" })}><div style={S.valBold}>12</div></td>
           <td colSpan={2} style={S.td({ textAlign: "center" })}><div style={S.valBold}>181</div></td>
@@ -263,7 +263,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           <td colSpan={7} style={S.td()} />
         </tr>
 
-        {/* ── Cargos header ────────────────────────────────────────────── */}
+        {/* â”€â”€ Cargos header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr style={{ background: "#f0f4ff" }}>
           <td colSpan={4} style={S.td({ textAlign: "center" })}><span style={S.section}>Prepaid</span></td>
           <td colSpan={8} style={S.td()}><span style={S.section}>Weight Charge</span></td>
@@ -302,7 +302,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           </td>
         </tr>
 
-        {/* ── Total Prepaid / Collect ───────────────────────────────────── */}
+        {/* â”€â”€ Total Prepaid / Collect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={4} style={S.td()}>
             <span style={S.lbl}>Total Prepaid</span>
@@ -312,13 +312,13 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           <td colSpan={12} style={S.td()} />
         </tr>
 
-        {/* ── Currency / Execution ─────────────────────────────────────── */}
+        {/* â”€â”€ Currency / Execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={4} style={S.td()}><span style={S.lbl}>Currency Conversion Rates</span></td>
           <td colSpan={4} style={S.td()}><span style={S.lbl}>CC Charges in Dest. Currency</span></td>
           <td colSpan={12} style={S.td({ background: "#f8fafc" })}>
             <span style={S.lbl}>Executed on (date) / at (place) / Signature of issuing Carrier or its Agent</span>
-            <div style={S.valBold}>07/07/2025 — BOGOTA - COLOMBIA</div>
+            <div style={S.valBold}>07/07/2025 â€” BOGOTA - COLOMBIA</div>
           </td>
         </tr>
         <tr>
@@ -326,7 +326,7 @@ function HawbDoc({ originalNum }: { originalNum: number }) {
           <td colSpan={10} style={S.td()}><span style={S.lbl}>Total Collect Charges</span></td>
         </tr>
 
-        {/* ── ORIGINAL N — centrado ────────────────────────────────────── */}
+        {/* â”€â”€ ORIGINAL N â€” centrado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <tr>
           <td colSpan={20} style={{ border: "none", textAlign: "center", paddingTop: 4 }}>
             <span style={{ fontSize: "9pt", fontWeight: 800, color: "#333", letterSpacing: "0.1em" }}>
@@ -359,10 +359,10 @@ export default function HawbPrint() {
       `}</style>
 
       {/* Toolbar */}
-      <div className="no-print" style={{ padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ fontSize: 12, color: "#475569" }}>
-            <strong>HAWB Mock</strong> · UCCEA2025050 · A4 Landscape
+            <strong>HAWB Mock</strong> Â· UCCEA2025050 Â· A4 Landscape
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 12, color: "#475569" }}>Originales a imprimir:</label>
@@ -376,11 +376,11 @@ export default function HawbPrint() {
         </div>
         <button onClick={() => window.print()}
           style={{ padding: "5px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / PDF
+          Imprimir
         </button>
       </div>
 
-      {/* Copias — en pantalla apiladas, en print una por página */}
+      {/* Copias â€” en pantalla apiladas, en print una por pÃ¡gina */}
       <div style={{ background: "#e5e7eb", minHeight: "100vh", padding: "20px 0" }}>
         {Array.from({ length: copias }, (_, i) => (
           <div key={i} className="hawb-copy"
@@ -392,3 +392,4 @@ export default function HawbPrint() {
     </>
   );
 }
+

@@ -27,7 +27,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Navbar único */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between gap-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3 sm:gap-6">
 
           {/* Izquierda: logo + nombre */}
           <div className="flex items-center gap-3">
@@ -67,7 +67,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-7">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-7">
         {children}
       </main>
 

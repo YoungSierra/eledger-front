@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -79,7 +79,7 @@ function SaldosContent() {
     <>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { overflow: auto !important; height: auto !important; }
+        html, body { overflow: auto !important; height: auto !important; background: #fff; }
         body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; }
         @page { margin: 12mm 15mm; size: A4 landscape; }
         @media print {
@@ -92,7 +92,7 @@ function SaldosContent() {
       <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
         <button onClick={() => window.print()}
           style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / Guardar PDF
+          Imprimir
         </button>
       </div>
 
@@ -199,3 +199,4 @@ export default function ImprimirSaldosProveedoresPage() {
     </Suspense>
   );
 }
+

@@ -182,6 +182,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [tab, setTab] = useState<"datos" | "hawb" | "mawb" | "manifiesto" | "bitacora" | "documentos">("datos");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false);
+  const [confirmarCerrar, setConfirmarCerrar] = useState(false);
+  const [anularManifId, setAnularManifId] = useState<string | null>(null);
 
   // Modales (solo Bitácora, Documentos y Manifiesto — HAWB y MAWB tienen página propia)
   const [manifiestoModal, setManifiestoModal] = useState(false);
@@ -238,6 +241,18 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     setSaving(true); setError("");
     try {
       await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}`, {
+        method: "PUT", body: JSON.stringify({ estado: nuevoEstado }),
+      });
+      await cargarCarpeta();
+    } catch (e) { setError(e instanceof Error ? e.message : "Error"); }
+    finally { setSaving(false); }
+  }
+
+  async function cambiarEstadoManifiesto(manifiestoId: string, nuevoEstado: string) {
+    if (!carpeta) return;
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/manifiestos/${manifiestoId}`, {
         method: "PUT", body: JSON.stringify({ estado: nuevoEstado }),
       });
       await cargarCarpeta();
@@ -384,6 +399,16 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
   const { operacion, cotizacion, hawbs, mawbs, manifiestos, eventos, documentos } = carpeta;
 
+  // Operación cerrada o cancelada: no admite nuevos MAWB / HAWB / Manifiesto.
+  const opBloqueada = operacion.estado === "CERRADA" || operacion.estado === "CANCELADA";
+  const msgBloqueada = operacion.estado === "CANCELADA" ? "La operación está cancelada" : "La operación está cerrada";
+
+  // Cierre: no se puede cerrar con MAWB/HAWB/manifiesto en borrador (deben estar emitidos o anulados).
+  const mawbBorr = mawbs.filter((m) => m.estado === "BORRADOR").length;
+  const hawbBorr = hawbs.filter((h) => h.estado === "BORRADOR").length;
+  const manifBorr = manifiestos.filter((m) => m.estado === "BORRADOR").length;
+  const puedeCerrar = mawbBorr === 0 && hawbBorr === 0 && manifBorr === 0;
+
   const aerolineaNombre = (id: string | null) => {
     const a = aerolineas.find((x) => x.id === id);
     return a ? `${a.codigo_iata} — ${a.nombre}` : "—";
@@ -435,15 +460,15 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               </button>
             )}
             {operacion.estado === "EN_CURSO" && (
-              <button onClick={() => cambiarEstadoOp("CERRADA")} disabled={saving}
+              <button onClick={() => setConfirmarCerrar(true)} disabled={saving}
                 className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                 Cerrar operación
               </button>
             )}
             {(operacion.estado === "ABIERTA" || operacion.estado === "EN_CURSO") && (
-              <button onClick={() => cambiarEstadoOp("CANCELADA")} disabled={saving}
+              <button onClick={() => setConfirmarCancelar(true)} disabled={saving}
                 className="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 text-[12px] font-medium rounded-lg">
-                Cancelar
+                Cancelar operación
               </button>
             )}
           </div>
@@ -451,6 +476,81 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
       </div>
 
       {error && <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-600">{error}</div>}
+
+      {anularManifId && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Anular manifiesto</h2>
+            <p className="text-[12px] text-gray-500 mb-3">
+              ¿Confirmas anular este manifiesto? Quedará en solo lectura; si necesitas corregir, crea uno nuevo.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setAnularManifId(null)} disabled={saving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                No, volver
+              </button>
+              <button onClick={async () => { await cambiarEstadoManifiesto(anularManifId, "ANULADA"); setAnularManifId(null); }} disabled={saving}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Anulando..." : "Sí, anular"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmarCerrar && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Cerrar operación</h2>
+            {puedeCerrar ? (
+              <p className="text-[12px] text-gray-500 mb-3">
+                ¿Confirmas cerrar la operación <strong>{operacion.numero}</strong>? Se dará por finalizada.
+              </p>
+            ) : (
+              <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">
+                No se puede cerrar: hay {[mawbBorr && `${mawbBorr} MAWB`, hawbBorr && `${hawbBorr} HAWB`, manifBorr && `${manifBorr} manifiesto(s)`].filter(Boolean).join(" y ")} en borrador.
+                Deben estar emitidos o anulados antes de cerrar.
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmarCerrar(false)} disabled={saving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                {puedeCerrar ? "No, volver" : "Entendido"}
+              </button>
+              {puedeCerrar && (
+                <button onClick={async () => { await cambiarEstadoOp("CERRADA"); setConfirmarCerrar(false); }} disabled={saving}
+                  className="px-4 py-1.5 bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                  {saving ? "Cerrando..." : "Sí, cerrar operación"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmarCancelar && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Cancelar operación</h2>
+            <p className="text-[12px] text-gray-500 mb-3">
+              ¿Confirmas cancelar la operación <strong>{operacion.numero}</strong>?
+            </p>
+            <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-4">
+              La operación quedará cancelada y se revierten sus efectos. Esta acción no se puede deshacer.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmarCancelar(false)} disabled={saving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                No, volver
+              </button>
+              <button onClick={async () => { await cambiarEstadoOp("CANCELADA"); setConfirmarCancelar(false); }} disabled={saving}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Cancelando..." : "Sí, cancelar operación"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ──────────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b border-gray-200">
@@ -541,8 +641,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
             <div className="ml-auto">
               <button
                 onClick={() => router.push(`/dashboard/operaciones/operaciones/${operacion.id}/hawb/nuevo`)}
-                disabled={mawbs.length === 0}
-                title={mawbs.length === 0 ? "Registra primero un MAWB" : undefined}
+                disabled={mawbs.length === 0 || opBloqueada}
+                title={opBloqueada ? msgBloqueada : mawbs.length === 0 ? "Registra primero un MAWB" : undefined}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-lg">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -556,8 +656,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               No hay HAWBs registrados
             </div>
           ) : (
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full min-w-[680px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/60">
                     {["HAWB #", "Shipper", "Consignee", "Vuelo", "Fecha vuelo", "Piezas", "Peso carg.", "Estado"].map((h) => (
@@ -596,7 +696,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         <div className="space-y-3">
           <div className="flex justify-end">
             <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${operacion.id}/mawb/nuevo`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
+              disabled={opBloqueada}
+              title={opBloqueada ? msgBloqueada : undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-lg">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -608,8 +710,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               No hay MAWBs registrados
             </div>
           ) : (
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full min-w-[680px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/60">
                     {["MAWB #", "Consignee", "Aerolínea", "Vuelo", "Fecha vuelo", "Piezas", "Flete", "Estado"].map((h) => (
@@ -650,8 +752,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         <div className="space-y-3">
           <div className="flex justify-end">
             <button onClick={abrirManifiestoModal}
-              disabled={mawbs.length === 0 || hawbs.length === 0}
-              title={mawbs.length === 0 ? "Registra primero un MAWB" : hawbs.length === 0 ? "Registra primero un HAWB" : undefined}
+              disabled={mawbs.length === 0 || hawbs.length === 0 || opBloqueada}
+              title={opBloqueada ? msgBloqueada : mawbs.length === 0 ? "Registra primero un MAWB" : hawbs.length === 0 ? "Registra primero un HAWB" : undefined}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-lg">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -670,8 +772,22 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                   <span className="text-[12px] font-semibold text-gray-700">Manifiesto — {m.fecha}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ESTADO_DOC[m.estado] ?? "bg-gray-100 text-gray-500"}`}>{m.estado}</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-gray-400">{m.lineas.length} HAWB{m.lineas.length !== 1 ? "s" : ""}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-gray-400 mr-1">{m.lineas.length} HAWB{m.lineas.length !== 1 ? "s" : ""}</span>
+                  {!opBloqueada && m.estado === "BORRADOR" && (
+                    <button onClick={() => cambiarEstadoManifiesto(m.id, "EMITIDA")} disabled={saving}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[11px] rounded-lg transition-colors">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      Emitir
+                    </button>
+                  )}
+                  {!opBloqueada && (m.estado === "BORRADOR" || m.estado === "EMITIDA") && (
+                    <button onClick={() => setAnularManifId(m.id)} disabled={saving}
+                      className="flex items-center gap-1.5 px-2.5 py-1 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 text-[11px] rounded-lg transition-colors">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                      Anular
+                    </button>
+                  )}
                   <button
                     onClick={() => window.open(`/manifiesto/${operacion.id}/${m.id}`, "_blank")}
                     className="flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-[11px] rounded-lg transition-colors">
@@ -772,8 +888,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               Sin documentos registrados
             </div>
           ) : (
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full min-w-[680px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/60">
                     {["Tipo", "Documento", "Estado", "Recibido", ""].map((h, i) => (
@@ -865,8 +981,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               ) : (
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">HAWBs a incluir</p>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-[11px]">
+                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-[11px]">
                       <thead className="bg-gray-50">
                         <tr className="border-b border-gray-200">
                           <th className="px-3 py-2 text-left w-8"></th>

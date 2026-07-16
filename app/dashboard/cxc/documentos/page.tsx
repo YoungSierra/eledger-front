@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -208,6 +209,9 @@ export default function CarteraPage() {
   const [pagina, setPagina] = useState(1);
   const porPagina = 50;
   const [loading, setLoading] = useState(true);
+  const { orden, alternar } = useOrden<
+    "numero" | "tipo" | "fecha" | "vencimiento" | "tercero" | "total" | "aplicado" | "saldo" | "estado"
+  >("fecha", "desc", () => setPagina(1));
 
   // Filtros
   const [fTipo, setFTipo]             = useState("");
@@ -464,6 +468,19 @@ export default function CarteraPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  // El backend pagina; se ordena la página cargada antes de pintarla.
+  const ordenada = ordenarFilas(lista, orden, {
+    numero:      (d) => d.numero,
+    tipo:        (d) => TIPOS.find((t) => t.value === d.tipo)?.label ?? d.tipo,
+    fecha:       (d) => d.fecha,
+    vencimiento: (d) => d.fecha_vencimiento,
+    tercero:     (d) => d.tercero_nombre,
+    total:       (d) => Number(d.total),
+    aplicado:    (d) => Number(d.total) - Number(d.saldo),
+    saldo:       (d) => Number(d.saldo),
+    estado:      (d) => d.estado,
+  });
+
   const totalPags = Math.max(1, Math.ceil(totalItems / porPagina));
   const necesitaVencimiento = fTipoDoc === "FACTURA" || fTipoDoc === "NOTA_DEBITO";
   const esExtranjera = fMonedaId && fMonedaId !== monedaFuncId;
@@ -523,20 +540,27 @@ export default function CarteraPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
+          <table className="w-full min-w-[760px] text-[12px]">
             <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
               <tr>
-                {["Número", "Tipo", "Fecha", "Vencimiento", "Tercero", "Total", "Aplicado", "Saldo", "Estado", ""].map((h) => (
-                  <th key={h} className={`${["Total","Aplicado","Saldo"].includes(h) ? "text-right" : "text-left"} px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap`}>{h}</th>
-                ))}
+                <Th campo="numero"      orden={orden} alternar={alternar} className="whitespace-nowrap">Número</Th>
+                <Th campo="tipo"        orden={orden} alternar={alternar} className="whitespace-nowrap">Tipo</Th>
+                <Th campo="fecha"       orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
+                <Th campo="vencimiento" orden={orden} alternar={alternar} className="whitespace-nowrap">Vencimiento</Th>
+                <Th campo="tercero"     orden={orden} alternar={alternar} className="whitespace-nowrap">Tercero</Th>
+                <Th campo="total"       orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Total</Th>
+                <Th campo="aplicado"    orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Aplicado</Th>
+                <Th campo="saldo"       orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Saldo</Th>
+                <Th campo="estado"      orden={orden} alternar={alternar} className="whitespace-nowrap">Estado</Th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
-              ) : lista.length === 0 ? (
+              ) : ordenada.length === 0 ? (
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Sin documentos registrados</td></tr>
-              ) : lista.map((d) => {
+              ) : ordenada.map((d) => {
                 const vencida = d.dias_vencimiento !== null && d.dias_vencimiento < 0;
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (
@@ -727,8 +751,8 @@ export default function CarteraPage() {
                   </button>
                 </div>
                 {retenciones.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="w-full">
+                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                    <table className="w-full min-w-[680px]">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold uppercase text-gray-400">
                           <th className="px-2 py-1.5 text-left w-28">Tipo</th>

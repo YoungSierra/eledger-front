@@ -10,9 +10,11 @@ interface CxpParametro {
   id: string;
   cuenta_proveedores_id: string | null;
   cuenta_proveedores_display: string | null;
+  cuenta_mercancias_recibidas_id: string | null;
+  cuenta_mercancias_recibidas_display: string | null;
 }
 
-const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
+const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 function CuentaSearch({ label, ayuda, valor, display, onChange }: {
@@ -71,8 +73,10 @@ export default function ParametrosCxpPage() {
   const [error, setError]     = useState("");
   const [ok, setOk]           = useState(false);
 
-  const [proveedoresId, setProveedoresId]     = useState<string | null>(null);
-  const [proveedoresDisp, setProveedoresDisp] = useState<string | null>(null);
+  const [proveedoresId, setProveedoresId]         = useState<string | null>(null);
+  const [proveedoresDisp, setProveedoresDisp]     = useState<string | null>(null);
+  const [mercanciasId, setMercanciasId]           = useState<string | null>(null);
+  const [mercanciasDisp, setMercanciasDisp]       = useState<string | null>(null);
 
   useEffect(() => { cargar(); }, []);
 
@@ -82,6 +86,8 @@ export default function ParametrosCxpPage() {
       const d = await apiFetch<CxpParametro>("/parametros-cxp");
       setProveedoresId(d.cuenta_proveedores_id);
       setProveedoresDisp(d.cuenta_proveedores_display);
+      setMercanciasId(d.cuenta_mercancias_recibidas_id);
+      setMercanciasDisp(d.cuenta_mercancias_recibidas_display);
     } finally { setLoading(false); }
   }
 
@@ -90,7 +96,10 @@ export default function ParametrosCxpPage() {
     try {
       await apiFetch("/parametros-cxp", {
         method: "PUT",
-        body: JSON.stringify({ cuenta_proveedores_id: proveedoresId }),
+        body: JSON.stringify({
+          cuenta_proveedores_id: proveedoresId,
+          cuenta_mercancias_recibidas_id: mercanciasId,
+        }),
       });
       setOk(true);
       setTimeout(() => setOk(false), 3000);
@@ -104,7 +113,7 @@ export default function ParametrosCxpPage() {
       <div className="mb-5 shrink-0">
         <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
         <p className="text-[12px] text-gray-400 mt-0.5">
-          Cuenta contable de proveedores usada al contabilizar comprobantes de pago
+          Cuentas contables usadas en el flujo de compras y pagos a proveedores
         </p>
       </div>
 
@@ -124,6 +133,13 @@ export default function ParametrosCxpPage() {
             ayuda="Débito al contabilizar comprobantes de pago. Ej: 2205xx — Proveedores nacionales"
             valor={proveedoresId} display={proveedoresDisp}
             onChange={(id, d) => { setProveedoresId(id); setProveedoresDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Mercancías recibidas sin factura (cuenta transitoria)"
+            ayuda="Crédito al confirmar una recepción; se reversa al causar la factura del proveedor. Defínela con tu contador según el PUC de la empresa."
+            valor={mercanciasId} display={mercanciasDisp}
+            onChange={(id, d) => { setMercanciasId(id); setMercanciasDisp(d); }}
           />
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

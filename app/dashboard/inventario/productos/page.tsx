@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Cuenta { id: string; codigo: string; nombre: string; }
 interface TipoProducto { id: string; codigo: string; nombre: string; maneja_inventario: boolean;
@@ -132,6 +134,9 @@ export default function ProductosPage() {
   const [soloActivos, setSolo]  = useState(false);
   const [pagina, setPagina]     = useState(1);
   const porPagina               = 20;
+  const { orden, alternar } = useOrden<
+    "codigo" | "nombre" | "tipo" | "familia" | "um" | "estado"
+  >("codigo", "asc", () => setPagina(1));
 
   const [drawer, setDrawer]       = useState<"crear" | "editar" | null>(null);
   const [editando, setEditando]   = useState<Producto | null>(null);
@@ -326,9 +331,18 @@ export default function ProductosPage() {
     p.codigo.toLowerCase().includes(busqueda.toLowerCase()) ||
     p.nombre.toLowerCase().includes(busqueda.toLowerCase())
   );
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(filtrados, orden, {
+    codigo:  (p) => p.codigo,
+    nombre:  (p) => p.nombre,
+    tipo:    (p) => p.tipo_nombre,
+    familia: (p) => p.familia_nombre,
+    um:      (p) => p.um_base_codigo,
+    estado:  (p) => (p.activo ? 1 : 0),
+  });
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = filtrados.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -345,25 +359,29 @@ export default function ProductosPage() {
       </div>
 
       <div className="flex items-center gap-3 mb-4 shrink-0">
-        <div className="relative flex-1 max-w-xs">
+        <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
             placeholder="Buscar..." className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
-        <label className="flex items-center gap-2 text-[12px] text-gray-600 cursor-pointer">
-          <input type="checkbox" checked={soloActivos} onChange={(e) => setSolo(e.target.checked)} className="rounded border-gray-300 text-blue-600" />
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none whitespace-nowrap">
+          <input type="checkbox" checked={soloActivos} onChange={(e) => setSolo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-600" />
           Solo activos
         </label>
       </div>
 
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[760px]">
             <thead className="sticky top-0 bg-gray-50/60 z-10">
               <tr className="border-b border-gray-100">
-                {["Código", "Nombre", "Tipo", "Familia", "UM", "Estado", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">{h}</th>
-                ))}
+                <Th campo="codigo"  orden={orden} alternar={alternar}>Código</Th>
+                <Th campo="nombre"  orden={orden} alternar={alternar}>Nombre</Th>
+                <Th campo="tipo"    orden={orden} alternar={alternar}>Tipo</Th>
+                <Th campo="familia" orden={orden} alternar={alternar}>Familia</Th>
+                <Th campo="um"      orden={orden} alternar={alternar}>UM</Th>
+                <Th campo="estado"  orden={orden} alternar={alternar}>Estado</Th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400"></th>
               </tr>
             </thead>
             <tbody>
@@ -421,13 +439,12 @@ export default function ProductosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-[13px] font-semibold text-gray-800">{drawer === "crear" ? "Nuevo producto" : "Editar producto"}</h2>
-              <button onClick={() => setDrawer(null)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo producto" : "Editar producto"}
+              onClose={() => setDrawer(null)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>}
+            />
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 

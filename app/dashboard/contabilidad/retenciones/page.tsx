@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Retencion {
   id: string; tipo: string; nombre: string;
@@ -85,6 +87,11 @@ export default function RetencionesPage() {
   const [soloActivas, setSoloActivas] = useState(false);
   const [pagina, setPagina]       = useState(1);
   const porPagina                 = 20;
+  // El backend lista por tipo asc (y % desc dentro de cada tipo) — ese es el orden inicial.
+  const { orden, alternar } = useOrden<
+    "tipo" | "nombre" | "porcentaje" | "base_minima" | "cuenta_compras" | "cuenta_ventas"
+    | "aplica_compra" | "aplica_venta" | "estado"
+  >("tipo", "asc", () => setPagina(1));
 
   const [drawer, setDrawer]       = useState<"crear" | "editar" | null>(null);
   const [editando, setEditando]   = useState<Retencion | null>(null);
@@ -154,9 +161,21 @@ export default function RetencionesPage() {
   }
 
   const filtradas = lista.filter((r) => r.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / porPagina));
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(filtradas, orden, {
+    tipo:           (r) => TIPO_LABEL[r.tipo] ?? r.tipo,
+    nombre:         (r) => r.nombre,
+    porcentaje:     (r) => Number(r.porcentaje),
+    base_minima:    (r) => (r.base_minima === null ? null : Number(r.base_minima)),
+    cuenta_compras: (r) => r.cuenta_compras_codigo,
+    cuenta_ventas:  (r) => r.cuenta_ventas_codigo,
+    aplica_compra:  (r) => (r.aplica_compra ? 1 : 0),
+    aplica_venta:   (r) => (r.aplica_venta ? 1 : 0),
+    estado:         (r) => (r.activo ? 1 : 0),
+  });
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = filtradas.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -174,7 +193,7 @@ export default function RetencionesPage() {
 
       {/* Filtros */}
       <div className="flex items-center gap-3 mb-4 shrink-0">
-        <div className="relative flex-1 max-w-xs">
+        <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
             placeholder="Buscar..." className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -186,9 +205,9 @@ export default function RetencionesPage() {
           <option value="RETEICA">ReteICA</option>
           <option value="RETEIVA">ReteIVA</option>
         </select>
-        <label className="flex items-center gap-2 text-[12px] text-gray-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none whitespace-nowrap">
           <input type="checkbox" checked={soloActivas} onChange={(e) => setSoloActivas(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600" />
+            className="w-3.5 h-3.5 accent-blue-600" />
           Solo activas
         </label>
       </div>
@@ -196,25 +215,34 @@ export default function RetencionesPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-gray-50/60 z-10">
+          <table className="w-full min-w-[760px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
-                {["Tipo", "Nombre", "%", "Base mínima", "Cta. compras", "Cta. ventas", "Compra", "Venta", "Estado", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">{h}</th>
-                ))}
+                <Th campo="tipo"           orden={orden} alternar={alternar}>Tipo</Th>
+                <Th campo="nombre"         orden={orden} alternar={alternar}>Nombre</Th>
+                <Th campo="porcentaje"     orden={orden} alternar={alternar}>%</Th>
+                <Th campo="base_minima"    orden={orden} alternar={alternar}>Base mínima</Th>
+                <Th campo="cuenta_compras" orden={orden} alternar={alternar}>Cta. compras</Th>
+                <Th campo="cuenta_ventas"  orden={orden} alternar={alternar}>Cta. ventas</Th>
+                <Th campo="aplica_compra"  orden={orden} alternar={alternar}>Compra</Th>
+                <Th campo="aplica_venta"   orden={orden} alternar={alternar}>Venta</Th>
+                <Th campo="estado"         orden={orden} alternar={alternar}>Estado</Th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr><td colSpan={10} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
               ) : filas.length === 0 ? (
                 <tr><td colSpan={10} className="px-4 py-10 text-center text-[12px] text-gray-400">Sin registros</td></tr>
               ) : filas.map((r) => (
-                <tr key={r.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3 shrink-0">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TIPO_STYLE[r.tipo] ?? "bg-gray-100 text-gray-500"}`}>
-                      {TIPO_LABEL[r.tipo] ?? r.tipo}
-                    </span>
+                <tr key={r.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TIPO_STYLE[r.tipo] ?? "bg-gray-100 text-gray-500"}`}>
+                        {TIPO_LABEL[r.tipo] ?? r.tipo}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">{r.nombre}</td>
                   <td className="px-4 py-3 text-[12px] text-gray-700 font-semibold">{parseFloat(r.porcentaje)}%</td>
@@ -269,15 +297,12 @@ export default function RetencionesPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-[13px] font-semibold text-gray-800">
-                {drawer === "crear" ? "Nueva retención" : "Editar retención"}
-              </h2>
-              <button onClick={() => setDrawer(null)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nueva retención" : "Editar retención"}
+              onClose={() => setDrawer(null)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>}
+            />
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}

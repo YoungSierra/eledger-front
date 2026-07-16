@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import DrawerHeader from "@/components/DrawerHeader";
 
 interface Rol {
   id: string;
@@ -44,6 +45,13 @@ const ACCIONES: { key: AccionKey; label: string }[] = [
 const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300";
 
+const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#059669", "#d97706", "#0891b2", "#dc2626", "#4f46e5", "#0d9488", "#c026d3"];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
 export default function RolesPage() {
   const title = usePageTitle();
   const [roles, setRoles]               = useState<Rol[]>([]);
@@ -56,7 +64,7 @@ export default function RolesPage() {
   const [error, setError]               = useState("");
   const [busqueda, setBusqueda]         = useState("");
   const [pagina, setPagina]             = useState(1);
-  const porPagina                       = 15;
+  const porPagina                       = 12; // filas completas en 4 / 3 / 2 columnas
 
   async function cargar() {
     setLoading(true);
@@ -179,66 +187,61 @@ export default function RolesPage() {
           className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
 
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-        <div className="flex-1 overflow-auto">
-        <table className="w-full text-[12px]">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Rol</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Descripción</th>
-              <th className="px-4 py-3 w-28"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {loading ? (
-              <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
-            ) : filas.length === 0 ? (
-              <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">{busqueda ? "Sin resultados para la búsqueda" : "Sin roles registrados"}</td></tr>
-            ) : filas.map((r) => (
-              <tr key={r.id} className="hover:bg-blue-50/30 transition-colors">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-800 font-medium capitalize">{r.nombre}</span>
-                    {r.es_superadmin && (
-                      <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-600 border border-amber-200 rounded">Fijo</span>
-                    )}
-                    {r.es_cliente && (
-                      <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-blue-50 text-blue-600 border border-blue-200 rounded">Cliente</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-500">{r.descripcion ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => abrirPermisos(r)} title="Permisos"
-                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      {/* Grid de tarjetas */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="py-16 text-center text-gray-400 text-[12px]">Cargando...</div>
+          ) : filas.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-[12px]">{busqueda ? "Sin resultados para la búsqueda" : "Sin roles registrados"}</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-2">
+              {filas.map((r) => (
+                <div key={r.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 flex flex-col transition-all hover:shadow-md">
+                  <div className="flex flex-col items-center text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: avatarColor(r.id) }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>
                       </svg>
-                    </button>
-                    {!r.es_superadmin && <>
-                      <button onClick={() => abrirEditar(r)} title="Editar"
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button onClick={() => abrirInactivar(r)} title="Inactivar"
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                        </svg>
-                      </button>
-                    </>}
+                    </div>
+                    <p className="mt-3 text-[14px] font-semibold text-gray-800 leading-tight capitalize">{r.nombre}</p>
+                    <p className="text-[11.5px] text-gray-500 mt-0.5 line-clamp-1 px-2">{r.descripcion || "Sin descripción"}</p>
+                    <div className="h-6 mt-1 flex items-center justify-center gap-1.5">
+                      {r.es_superadmin && <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-600 border border-amber-200 rounded">Fijo</span>}
+                      {r.es_cliente && <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-blue-50 text-blue-600 border border-blue-200 rounded">Cliente</span>}
+                    </div>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+                  <div className="border-t border-gray-100 my-4" />
+
+                  {/* Acciones — híbrido: principal en texto + secundarias en icono */}
+                  <div className="mt-auto flex items-center gap-2">
+                    <button onClick={() => abrirPermisos(r)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      Permisos
+                    </button>
+                    {!r.es_superadmin && (
+                      <>
+                        <button onClick={() => abrirEditar(r)} title="Editar"
+                          className="p-2 border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 rounded-lg transition-colors">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button onClick={() => abrirInactivar(r)} title="Inactivar"
+                          className="p-2 border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 rounded-lg transition-colors">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0">
+
+        {/* Paginación */}
+        <div className="flex items-center justify-between pt-3 mt-1 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
             {rolesFiltrados.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, rolesFiltrados.length)}`} de {rolesFiltrados.length}
           </span>
@@ -256,18 +259,13 @@ export default function RolesPage() {
       {(modal === "crear" || modal === "editar") && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {modal === "crear" ? "Nuevo rol" : "Editar rol"}
-                </h2>
-                {seleccionado && <p className="text-[11px] text-gray-400 mt-0.5">{seleccionado.nombre}</p>}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={modal === "crear" ? "Nuevo rol" : "Editar rol"}
+              subtitle={seleccionado?.nombre}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>}
+            />
             <form onSubmit={guardarRol} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className={labelCls}>Nombre *</label>
@@ -341,7 +339,7 @@ export default function RolesPage() {
 
             {/* Tabla */}
             <div className="overflow-auto flex-1">
-              <table className="w-full text-[11px]">
+              <table className="w-full min-w-[680px] text-[11px]">
                 <thead className="sticky top-0 bg-white z-10">
                   <tr className="border-b border-gray-200">
                     <th className="text-left px-6 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-48">Opción</th>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Operacion {
   id: string; numero: string; cotizacion_id: string;
@@ -29,6 +30,18 @@ const TIPO_STYLE: Record<string, string> = {
   EXPORTACION: "bg-indigo-50 text-indigo-700",
 };
 
+// Fecha local YYYY-MM-DD (evita el corrimiento de día por UTC de toISOString).
+function fechaLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Rango por defecto al entrar: un mes hacia atrás hasta hoy.
+function rangoPorDefecto() {
+  const hasta = new Date();
+  const desde = new Date(hasta);
+  desde.setMonth(desde.getMonth() - 1);
+  return { desde: fechaLocal(desde), hasta: fechaLocal(hasta) };
+}
+
 export default function OperacionesPage() {
   const title = usePageTitle();
   const router = useRouter();
@@ -36,17 +49,21 @@ export default function OperacionesPage() {
   const [cotizaciones, setCotizaciones] = useState<Record<string, CotizacionInfo>>({});
   const [estado, setEstado]       = useState("");
   const [busqueda, setBusqueda]   = useState("");
-  const [fechaDesde, setFechaDesde] = useState("");
-  const [fechaHasta, setFechaHasta] = useState("");
+  const [fechaDesde, setFechaDesde] = useState(() => rangoPorDefecto().desde);
+  const [fechaHasta, setFechaHasta] = useState(() => rangoPorDefecto().hasta);
   const [loading, setLoading]     = useState(true);
   const [pagina, setPagina]       = useState(1);
   const porPagina                 = 20;
+  const { orden, alternar } = useOrden<
+    "numero" | "cliente" | "ruta" | "apertura" | "estado" | "piezas" | "peso"
+  >("apertura", "desc", () => setPagina(1));
 
-  useEffect(() => { cargar(); }, [estado, busqueda, fechaDesde, fechaHasta]);
+  // El query solo corre al montar y al pulsar Buscar/Enter (no al cambiar filtros).
+  useEffect(() => { cargar(); }, []);
 
   function aplicarAtajo(atajo: string) {
     const hoy = new Date();
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const fmt = fechaLocal;
     if (atajo === "hoy") {
       setFechaDesde(fmt(hoy)); setFechaHasta(fmt(hoy));
     } else if (atajo === "semana") {
@@ -84,9 +101,24 @@ export default function OperacionesPage() {
     } finally { setLoading(false); }
   }
 
-  const totalPaginas = Math.max(1, Math.ceil(operaciones.length / porPagina));
+  // Cliente y ruta viven en la cotización, así que se ordena por el valor ya
+  // cruzado — el mismo que se pinta en la fila.
+  const ordenada = ordenarFilas(operaciones, orden, {
+    numero:   (o) => o.numero,
+    cliente:  (o) => cotizaciones[o.cotizacion_id]?.cliente_nombre,
+    ruta:     (o) => {
+      const c = cotizaciones[o.cotizacion_id];
+      return c ? `${c.origen} ${c.destino}` : null;
+    },
+    apertura: (o) => o.fecha_apertura,
+    estado:   (o) => o.estado,
+    piezas:   (o) => o.piezas,
+    peso:     (o) => (o.peso_kg === null ? null : Number(o.peso_kg)),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = operaciones.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -104,6 +136,7 @@ export default function OperacionesPage() {
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
           <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") cargar(); }}
             placeholder="Buscar por número de operación..."
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
@@ -133,28 +166,33 @@ export default function OperacionesPage() {
               {l}
             </button>
           ))}
-          {(fechaDesde || fechaHasta) && (
-            <button onClick={() => aplicarAtajo("limpiar")}
+          {(fechaDesde || fechaHasta || busqueda) && (
+            <button onClick={() => { setBusqueda(""); aplicarAtajo("limpiar"); }} title="Limpiar filtros"
               className="px-2 py-1 text-[10px] font-medium rounded border border-red-200 text-red-400 hover:bg-red-50 transition-colors">
               ✕
             </button>
           )}
         </div>
+        <button onClick={() => cargar()}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
       </div>
 
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[760px]">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Operación</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Cliente</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Ruta</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Apertura</th>
-                <th className="text-center px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Estado</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Piezas</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Peso kg</th>
+                <Th campo="numero"   orden={orden} alternar={alternar}>Operación</Th>
+                <Th campo="cliente"  orden={orden} alternar={alternar}>Cliente</Th>
+                <Th campo="ruta"     orden={orden} alternar={alternar}>Ruta</Th>
+                <Th campo="apertura" orden={orden} alternar={alternar}>Apertura</Th>
+                <Th campo="estado"   orden={orden} alternar={alternar} align="center">Estado</Th>
+                <Th campo="piezas"   orden={orden} alternar={alternar} align="right">Piezas</Th>
+                <Th campo="peso"     orden={orden} alternar={alternar} align="right">Peso kg</Th>
               </tr>
             </thead>
             <tbody>

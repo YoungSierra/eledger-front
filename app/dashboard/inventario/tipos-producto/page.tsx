@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 
@@ -156,29 +157,31 @@ export default function TiposProductoPage() {
         <p className="text-[12px] text-gray-400 mt-0.5">Cuentas contables globales por tipo — fallback cuando el producto o familia no tienen cuentas configuradas</p>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-4xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-gray-50/60 z-10">
+          <table className="w-full min-w-[680px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
                 {["Tipo", "Maneja inventario", "Cuentas config.", ""].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr><td colSpan={4} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
               ) : lista.map((t) => {
                 const n = cuentasConfig(t);
                 return (
-                  <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
+                  <tr key={t.id} className="hover:bg-blue-50/30 transition-colors">
                     <td className="px-4 py-3">
-                      <div>
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${TIPO_COLOR[t.codigo] ?? "bg-gray-100 text-gray-600"}`}>
-                          {t.nombre}
-                        </span>
-                        <span className="ml-2 text-[10px] font-mono text-gray-300">{t.codigo}</span>
+                      <div className="flex items-center gap-2.5">
+                        <div>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${TIPO_COLOR[t.codigo] ?? "bg-gray-100 text-gray-600"}`}>
+                            {t.nombre}
+                          </span>
+                          <span className="ml-2 text-[10px] font-mono text-gray-300">{t.codigo}</span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -208,18 +211,13 @@ export default function TiposProductoPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <h2 className="text-[13px] font-semibold text-gray-800">Cuentas contables</h2>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold mt-1 inline-block ${TIPO_COLOR[drawer.codigo] ?? "bg-gray-100 text-gray-600"}`}>
-                  {drawer.nombre}
-                </span>
-              </div>
-              <button onClick={() => setDrawer(null)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title="Cuentas contables"
+              subtitle={drawer.nombre}
+              onClose={() => setDrawer(null)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>}
+            />
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
               <CuentaSearch label="Inventario"

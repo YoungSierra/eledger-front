@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface MapeoColumnas {
   fecha: string; descripcion: string; debito: string; credito: string; referencia: string;
@@ -34,6 +36,9 @@ export default function BancosPage() {
   const [soloActivos, setSoloActivos] = useState(false);
   const [pagina, setPagina]     = useState(1);
   const porPagina               = 20;
+  const { orden, alternar } = useOrden<
+    "nombre" | "codigo" | "nit" | "extracto" | "estado"
+  >("nombre", "asc", () => setPagina(1));
 
   const [drawer, setDrawer]     = useState<"crear" | "editar" | null>(null);
   const [editando, setEditando] = useState<Banco | null>(null);
@@ -107,9 +112,18 @@ export default function BancosPage() {
     b.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
     (b.codigo ?? "").toLowerCase().includes(busqueda.toLowerCase())
   );
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(filtrados, orden, {
+    nombre:   (b) => b.nombre,
+    codigo:   (b) => b.codigo,
+    nit:      (b) => b.nit,
+    extracto: (b) => b.formato,
+    estado:   (b) => (b.activo ? 1 : 0),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = filtrados.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -125,36 +139,43 @@ export default function BancosPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 mb-4 shrink-0">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex items-center gap-3 mb-4 shrink-0 max-w-5xl">
+        <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
             placeholder="Buscar..." className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
-        <label className="flex items-center gap-2 text-[12px] text-gray-600 cursor-pointer">
-          <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} className="rounded border-gray-300 text-blue-600" />
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none whitespace-nowrap">
+          <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} className="w-3.5 h-3.5 accent-blue-600" />
           Solo activos
         </label>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-5xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-gray-50/60 z-10">
+          <table className="w-full min-w-[760px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
-                {["Nombre", "Código", "NIT", "Extracto", "Estado", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">{h}</th>
-                ))}
+                <Th campo="nombre"   orden={orden} alternar={alternar}>Nombre</Th>
+                <Th campo="codigo"   orden={orden} alternar={alternar}>Código</Th>
+                <Th campo="nit"      orden={orden} alternar={alternar}>NIT</Th>
+                <Th campo="extracto" orden={orden} alternar={alternar}>Extracto</Th>
+                <Th campo="estado"   orden={orden} alternar={alternar}>Estado</Th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
               ) : filas.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-[12px] text-gray-400">Sin registros</td></tr>
               ) : filas.map((b) => (
-                <tr key={b.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">{b.nombre}</td>
+                <tr key={b.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="px-4 py-3 text-[12px]">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-semibold text-blue-600">{b.nombre}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-[12px] text-gray-500">{b.codigo ?? "—"}</td>
                   <td className="px-4 py-3 text-[12px] text-gray-500">{b.nit ?? "—"}</td>
                   <td className="px-4 py-3">
@@ -201,13 +222,12 @@ export default function BancosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-[13px] font-semibold text-gray-800">{drawer === "crear" ? "Nuevo banco" : "Editar banco"}</h2>
-              <button onClick={() => setDrawer(null)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo banco" : "Editar banco"}
+              onClose={() => setDrawer(null)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>}
+            />
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
               <div>

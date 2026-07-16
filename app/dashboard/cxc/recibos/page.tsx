@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -127,6 +128,9 @@ export default function RecibosPage() {
   const [total, setTotal]       = useState(0);
   const [pagina, setPagina]     = useState(1);
   const POR_PAGINA = 50;
+  const { orden, alternar } = useOrden<
+    "numero" | "fecha" | "cliente" | "total" | "estado"
+  >("fecha", "desc");
 
   const [modalOpen, setModalOpen]           = useState(false);
   const [reciboId, setReciboId]             = useState<string | null>(null);
@@ -451,6 +455,15 @@ export default function RecibosPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  // El backend pagina; se ordena la página cargada antes de pintarla.
+  const ordenada = ordenarFilas(rows, orden, {
+    numero:  (r) => r.numero,
+    fecha:   (r) => r.fecha,
+    cliente: (r) => r.tercero_nombre,
+    total:   (r) => Number(r.total),
+    estado:  (r) => r.estado,
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -466,23 +479,23 @@ export default function RecibosPage() {
       </div>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-[12px]">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+        <table className="w-full min-w-[640px] text-[12px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
-              {(["Número","Fecha","Cliente"] as string[]).map(h => (
-                <th key={h} className="text-left px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-              ))}
-              <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-              <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
+              <Th campo="numero"  orden={orden} alternar={alternar}>Número</Th>
+              <Th campo="fecha"   orden={orden} alternar={alternar}>Fecha</Th>
+              <Th campo="cliente" orden={orden} alternar={alternar}>Cliente</Th>
+              <Th campo="total"   orden={orden} alternar={alternar} align="right">Total</Th>
+              <Th campo="estado"  orden={orden} alternar={alternar}>Estado</Th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {ordenada.length === 0 && (
               <tr><td colSpan={6} className="text-center py-10 text-[12px] text-gray-400">Sin recibos registrados</td></tr>
             )}
-            {rows.map(r => (
+            {ordenada.map(r => (
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 font-mono text-[11px] text-blue-700">{r.numero}</td>
                 <td className="px-3 py-2.5 text-gray-600">{r.fecha}</td>
@@ -562,7 +575,7 @@ export default function RecibosPage() {
 
             {/* Cabecera del recibo */}
             <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={lbl}>Cliente</label>
                   <TerceroSearch display={terceroDisplay} disabled={soloLectura}
@@ -601,7 +614,7 @@ export default function RecibosPage() {
             </div>
 
             {/* Cuerpo: panel izquierdo + panel derecho */}
-            <div className="flex-1 flex overflow-hidden min-h-0">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden min-h-0">
 
               {loadingDetalle && (
                 <div className="absolute inset-0 bg-white/70 flex items-center justify-center rounded-2xl z-10">
@@ -609,7 +622,7 @@ export default function RecibosPage() {
                 </div>
               )}
               {/* Panel izquierdo — Montos */}
-              <div className="shrink-0 border-r border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto" style={{ width: 400 }}>
+              <div className="w-full lg:w-[400px] shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 p-5 flex flex-col gap-4 lg:overflow-y-auto">
 
                 <div>
                   <label className={lbl}>Valor recibido en banco</label>
@@ -710,7 +723,7 @@ export default function RecibosPage() {
               </div>
 
               {/* Panel derecho — Facturas */}
-              <div className="flex-1 overflow-y-auto p-5">
+              <div className="flex-1 lg:overflow-y-auto p-5">
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
                   {soloLectura ? "Facturas aplicadas" : "Facturas pendientes del cliente"}
                 </p>
@@ -728,7 +741,8 @@ export default function RecibosPage() {
                 )}
 
                 {facturas.length > 0 && (
-                  <table className="w-full text-[11px]">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-[11px]">
                     <thead>
                       <tr className="border-b border-gray-100">
                         <th className="text-left py-2 text-[10px] font-semibold text-gray-400 uppercase">Factura</th>
@@ -796,6 +810,7 @@ export default function RecibosPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
             </div>

@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import DraftWatermark from "../../../DraftWatermark";
 
 interface ManifiestoLinea {
   id: string; hawb_id: string;
@@ -79,9 +80,10 @@ export default function ImprimirManifiestoPage({ params }: { params: Promise<{ o
 
   return (
     <>
+      <DraftWatermark estado={manifiesto.estado} />
       <style>{`
         * { box-sizing: border-box; }
-        html, body { overflow: auto !important; height: auto !important; }
+        html, body { overflow: auto !important; height: auto !important; background: #fff; }
         body { margin: 0; padding: 0; background: #fff; font-family: system-ui, sans-serif; }
         @page { margin: 15mm 18mm; size: A4; }
         @media print {
@@ -91,10 +93,10 @@ export default function ImprimirManifiestoPage({ params }: { params: Promise<{ o
       `}</style>
 
       {/* Botón imprimir */}
-      <div className="no-print" style={{ padding: "12px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
+      <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
         <button onClick={() => window.print()}
           style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / Guardar PDF
+          Imprimir
         </button>
       </div>
 

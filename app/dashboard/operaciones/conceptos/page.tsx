@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Concepto {
   id: string; nombre: string; seccion: string;
@@ -53,6 +55,7 @@ export default function ConceptosPage() {
   const [error, setError]             = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 20;
+  const { orden, alternar } = useOrden<"seccion" | "concepto" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
 
@@ -99,9 +102,20 @@ export default function ConceptosPage() {
     })
     .sort((a, b) => SECCIONES.indexOf(a.seccion) - SECCIONES.indexOf(b.seccion));
 
-  const totalPaginas = Math.max(1, Math.ceil(conceptosFiltrados.length / porPagina));
+  // Se ordena la lista completa antes de paginar. La sección ordena por su
+  // orden canónico (el de SECCIONES, que es el flujo de la operación), no
+  // alfabéticamente: es el orden que la página muestra por defecto.
+  const ordenada = ordenarFilas(conceptosFiltrados, orden, {
+    seccion:  (c) => SECCIONES.indexOf(c.seccion),
+    concepto: (c) => c.nombre,
+    tipo:     (c) => TIPO_LABEL[c.tipo_calculo],
+    moneda:   (c) => c.moneda,
+    estado:   (c) => (c.activo ? 1 : 0),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = conceptosFiltrados.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -120,7 +134,7 @@ export default function ConceptosPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 mb-4 shrink-0">
+      <div className="flex gap-2 mb-4 shrink-0 max-w-5xl">
         <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
@@ -140,44 +154,46 @@ export default function ConceptosPage() {
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-5xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-white z-10">
+          <table className="w-full min-w-[760px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Sección</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Concepto</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Tipo cálculo</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Moneda</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Estado</th>
+                <Th campo="seccion"  orden={orden} alternar={alternar}>Sección</Th>
+                <Th campo="concepto" orden={orden} alternar={alternar}>Concepto</Th>
+                <Th campo="tipo"     orden={orden} alternar={alternar}>Tipo cálculo</Th>
+                <Th campo="moneda"   orden={orden} alternar={alternar}>Moneda</Th>
+                <Th campo="estado"   orden={orden} alternar={alternar}>Estado</Th>
                 <th className="px-4 py-2.5 w-20"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {filas.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-gray-400">
                   {busqueda || filtroSeccion ? "Sin resultados para los filtros aplicados" : "Sin conceptos registrados"}
                 </td></tr>
               ) : filas.map((c) => (
-                <tr key={c.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${!c.activo ? "opacity-40" : ""}`}>
-                  <td className="px-4 py-2.5">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700">
-                      {SECCION_LABEL[c.seccion]}
-                    </span>
+                <tr key={c.id} className={`hover:bg-blue-50/30 transition-colors ${!c.activo ? "opacity-40" : ""}`}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700">
+                        {SECCION_LABEL[c.seccion]}
+                      </span>
+                    </div>
                   </td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-800 font-medium">{c.nombre}</td>
-                  <td className="px-4 py-2.5 text-[11px] text-gray-500">{TIPO_LABEL[c.tipo_calculo]}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">{c.nombre}</td>
+                  <td className="px-4 py-3 text-[11px] text-gray-500">{TIPO_LABEL[c.tipo_calculo]}</td>
+                  <td className="px-4 py-3">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${c.moneda === "USD" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"}`}>
                       {c.moneda}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${c.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
                       {c.activo ? "Activo" : "Inactivo"}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => abrirEditar(c)} title="Editar"
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
@@ -221,18 +237,13 @@ export default function ConceptosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[380px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {drawer === "crear" ? "Nuevo concepto" : "Editar concepto"}
-                </h2>
-                {sel && <p className="text-[11px] text-gray-400 mt-0.5">{sel.nombre}</p>}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo concepto" : "Editar concepto"}
+              subtitle={sel ? sel.nombre : undefined}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>}
+            />
             <form onSubmit={guardar} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className={lbl}>Nombre *</label>

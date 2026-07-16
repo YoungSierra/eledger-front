@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Aeropuerto {
   id: string; codigo_iata: string; nombre: string;
@@ -32,6 +34,7 @@ export default function AeropuertosPage() {
   const [timer, setTimer]             = useState<ReturnType<typeof setTimeout> | null>(null);
   const [pagina, setPagina]           = useState(1);
   const [porPagina]                   = useState(25);
+  const { orden, alternar } = useOrden<"iata" | "nombre" | "ciudad" | "pais" | "estado">("nombre", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
 
@@ -77,9 +80,18 @@ export default function AeropuertosPage() {
     cargar(busqueda || undefined);
   }
 
-  const totalPaginas = Math.max(1, Math.ceil(lista.length / porPagina));
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(lista, orden, {
+    iata:   (a) => a.codigo_iata,
+    nombre: (a) => a.nombre,
+    ciudad: (a) => a.ciudad,
+    pais:   (a) => a.pais,
+    estado: (a) => (a.activo ? 1 : 0),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = lista.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -91,53 +103,57 @@ export default function AeropuertosPage() {
         <button onClick={abrirCrear}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nuevo
+          Nuevo aeropuerto y puerto
         </button>
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 mb-4 shrink-0">
+      <div className="flex gap-2 mb-4 shrink-0 max-w-5xl">
         <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => onBusqueda(e.target.value)}
             placeholder="Buscar por código IATA, nombre o ciudad..."
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
-        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none whitespace-nowrap">
           <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} className="w-3.5 h-3.5 accent-blue-600" />
           Solo activos
         </label>
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-5xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-white z-10">
+          <table className="w-full min-w-[760px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 w-20">IATA</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Nombre</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Ciudad</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">País</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Estado</th>
+                <Th campo="iata"   orden={orden} alternar={alternar} className="w-20">IATA</Th>
+                <Th campo="nombre" orden={orden} alternar={alternar}>Nombre</Th>
+                <Th campo="ciudad" orden={orden} alternar={alternar}>Ciudad</Th>
+                <Th campo="pais"   orden={orden} alternar={alternar}>País</Th>
+                <Th campo="estado" orden={orden} alternar={alternar}>Estado</Th>
                 <th className="px-4 py-2.5 w-20"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {filas.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-gray-400">Sin aeropuertos registrados</td></tr>
               ) : filas.map((a) => (
-                <tr key={a.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${!a.activo ? "opacity-50" : ""}`}>
-                  <td className="px-4 py-2.5 font-mono text-[12px] font-bold text-gray-700">{a.codigo_iata}</td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-800">{a.nombre}</td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-600">{a.ciudad}</td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-500">{a.pais}</td>
-                  <td className="px-4 py-2.5">
+                <tr key={a.id} className={`hover:bg-blue-50/30 transition-colors ${!a.activo ? "opacity-50" : ""}`}>
+                  <td className="px-4 py-3 text-[12px]">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono font-semibold text-blue-600">{a.codigo_iata}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-[12px] text-gray-800">{a.nombre}</td>
+                  <td className="px-4 py-3 text-[12px] text-gray-600">{a.ciudad}</td>
+                  <td className="px-4 py-3 text-[12px] text-gray-500">{a.pais}</td>
+                  <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${a.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
                       {a.activo ? "Activo" : "Inactivo"}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => abrirEditar(a)} title="Editar"
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
@@ -181,18 +197,13 @@ export default function AeropuertosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {drawer === "crear" ? "Nuevo aeropuerto" : "Editar aeropuerto"}
-                </h2>
-                {sel && <p className="text-[11px] text-gray-400 mt-0.5">{sel.codigo_iata} — {sel.nombre}</p>}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo aeropuerto y puerto" : "Editar aeropuerto y puerto"}
+              subtitle={sel ? `${sel.codigo_iata} — ${sel.nombre}` : undefined}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>}
+            />
             <form onSubmit={guardar} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className={lbl}>Código IATA *</label>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
 import { usePageTitle, useHasRuta } from "@/lib/menu-context";
+import StatCard, { ICONS } from "@/components/StatCard";
 
 interface ResumenItem {
   tercero_id: string;
@@ -120,7 +121,7 @@ export default function ResumenCxcPage() {
           <button onClick={() => window.open(`/cxc-resumen?fecha_corte=${fechaCorte}`, "_blank")} disabled={!data || loading}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-[12px] font-medium rounded-lg transition-colors disabled:opacity-40">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-            Imprimir / PDF
+            Imprimir
           </button>
           <button onClick={exportarExcel} disabled={!data || loading || exporting}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-green-200 text-green-700 hover:bg-green-50 text-[12px] font-medium rounded-lg transition-colors disabled:opacity-40">
@@ -132,19 +133,16 @@ export default function ResumenCxcPage() {
 
       {/* Cards de totales */}
       {data && (
-        <div className="grid grid-cols-6 gap-3 mb-4 shrink-0 no-print">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4 shrink-0 no-print">
           {[
-            { label: "Corriente",  value: data.total_corriente, color: "text-green-700",  bg: "bg-green-50 border-green-100" },
-            { label: "1 – 30 días", value: data.total_1_30,     color: "text-yellow-700", bg: "bg-yellow-50 border-yellow-100" },
-            { label: "31 – 60 días",value: data.total_31_60,    color: "text-orange-700", bg: "bg-orange-50 border-orange-100" },
-            { label: "61 – 90 días",value: data.total_61_90,    color: "text-red-600",    bg: "bg-red-50 border-red-100" },
-            { label: "+ 90 días",  value: data.total_mas_90,    color: "text-red-800",    bg: "bg-red-100 border-red-200" },
-            { label: "Total",      value: data.total_general,   color: "text-gray-800",   bg: "bg-gray-100 border-gray-200" },
-          ].map(({ label, value, color, bg }) => (
-            <div key={label} className={`border rounded-xl px-3 py-2.5 ${bg}`}>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{label}</p>
-              <p className={`text-[14px] font-bold font-mono ${color}`}>{fmtTotal(value)}</p>
-            </div>
+            { label: "Corriente",    value: data.total_corriente, hex: "#059669", icon: ICONS.check },
+            { label: "1 – 30 días",  value: data.total_1_30,      hex: "#d97706", icon: ICONS.clock },
+            { label: "31 – 60 días", value: data.total_31_60,     hex: "#ea580c", icon: ICONS.clock },
+            { label: "61 – 90 días", value: data.total_61_90,     hex: "#dc2626", icon: ICONS.clock },
+            { label: "+ 90 días",    value: data.total_mas_90,    hex: "#b91c1c", icon: ICONS.alert },
+            { label: "Total",        value: data.total_general,   hex: "#475569", icon: ICONS.sum   },
+          ].map(({ label, value, hex, icon }) => (
+            <StatCard key={label} label={label} value={fmtTotal(value)} hex={hex} icon={icon} mono />
           ))}
         </div>
       )}
@@ -152,7 +150,7 @@ export default function ResumenCxcPage() {
       {/* Tabla */}
       <div className="print-area flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
+          <table className="w-full min-w-[760px] text-[12px]">
             <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
               <tr>
                 <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">NIT</th>

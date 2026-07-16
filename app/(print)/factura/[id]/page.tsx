@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -94,12 +94,14 @@ export default function PrintFactura() {
       apiFetch<Factura>(`/facturacion/facturas/${id}`),
       apiFetch<Empresa>("/empresa").catch(() => null),
       apiFetch<Resolucion>("/facturacion/resoluciones/activa").catch(() => null),
-      apiFetch<{clave:string;valor:string}[]>("/configuracion").catch(() => null),
+      // El nombre del PTH vive con el resto de la config del proveedor
+      // (fac_config_electronica), no suelto en adm_configuracion.
+      apiFetch<{nombre_pth: string | null}>("/facturacion/config-electronica/publica").catch(() => null),
     ]).then(([f, e, r, cfg]) => {
       setFactura(f);
       if (e) setEmpresa(e);
       if (r) setResolucion(r);
-      if (cfg) setPth(cfg.find(c => c.clave === "proveedor_tecnologico_nombre")?.valor ?? "");
+      if (cfg) setPth(cfg.nombre_pth ?? "");
       document.title = f.numero;
       if (f.cufe) {
         const url = `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${f.cufe}`;
@@ -117,7 +119,7 @@ export default function PrintFactura() {
     <>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { overflow: auto !important; height: auto !important; }
+        html, body { overflow: auto !important; height: auto !important; background: #fff; }
         body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000; }
         @page { margin: 14mm 16mm; size: A4; }
         .page-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
@@ -131,11 +133,11 @@ export default function PrintFactura() {
       <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
         <button onClick={() => window.print()}
           style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / Guardar PDF
+          Imprimir
         </button>
       </div>
 
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: "28px 36px", fontSize: 11, lineHeight: 1.5 }}>
+      <div style={{ maxWidth: 800, margin: "0 auto", padding: "28px 36px", fontSize: 11, lineHeight: 1.5, display: "flex", flexDirection: "column", minHeight: "269mm" }}>
 
         {/* Advertencia DIAN */}
         {!factura.cufe && (
@@ -255,6 +257,8 @@ export default function PrintFactura() {
           </tbody>
         </table>
 
+        <div style={{ flex: 1 }} />
+
         {/* Totales + Retenciones + Notas */}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 24, marginBottom: 24 }}>
           <div style={{ flex: 1 }}>
@@ -333,8 +337,6 @@ export default function PrintFactura() {
         </div>
 
 
-        {/* Espaciado para que el contenido no quede debajo del footer */}
-        <div style={{ height: 180 }} />
       </div>
 
       {/* Pie de página fijo */}

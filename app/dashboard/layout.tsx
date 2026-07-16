@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, logout } from "@/lib/api";
 import { MenuContext, GrupoMenu } from "@/lib/menu-context";
+import AyudaPanel from "@/components/AyudaPanel";
 
 interface UsuarioActual {
   id: string;
@@ -16,7 +17,7 @@ interface UsuarioActual {
 
 
 const MODULO_ICONS: Record<string, React.ReactNode> = {
-  administracion: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>,
+  administracion: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
   contabilidad:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
   cxc:            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
   cxp:            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
@@ -53,6 +54,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [grupos, setGrupos]       = useState<GrupoMenu[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [ayudaOpen, setAyudaOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   // Modal de perfil
   const [perfilOpen, setPerfilOpen]   = useState(false);
@@ -153,6 +157,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (grupo) setCollapsed((prev) => ({ ...prev, [grupo.modulo_codigo]: true }));
   }, [pathname, grupos]);
 
+  // Cerrar el menú móvil al navegar
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+
   if (!usuario) {
     return (
       <div className="min-h-screen bg-[#f4f5f7] flex items-center justify-center">
@@ -220,14 +227,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="fixed inset-0 flex bg-[#f4f5f7] overflow-hidden">
 
+      {/* Backdrop móvil */}
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="shrink-0 flex flex-col transition-all duration-200"
-        style={{ background: "#1d4ed8", width: sidebarOpen ? "220px" : "52px", height: "100vh", overflow: "hidden" }}>
+      <aside className={`shrink-0 flex flex-col transition-transform duration-200 lg:transition-all
+        fixed inset-y-0 left-0 z-50 lg:static lg:z-auto
+        ${mobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+        style={{ background: "#1d4ed8", width: sidebarOpen ? "250px" : "56px", height: "100vh", overflow: "hidden" }}>
 
         {/* ── Header usuario ───────────────────────────────────────── */}
         <div className="shrink-0" style={{ background: "#1e40af", padding: sidebarOpen ? "14px 12px" : "14px 0" }}>
           {sidebarOpen ? (
             <button onClick={abrirPerfil}
+              title="Mi perfil — editar datos y cambiar contraseña"
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-all hover:brightness-110"
               style={{ background: "rgba(255,255,255,0.08)" }}>
               <div className="flex items-center justify-center rounded-full shrink-0 text-[11px] font-bold text-blue-800"
@@ -238,7 +253,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <p className="text-white text-[11px] font-semibold truncate leading-tight">{usuario.nombre} {usuario.apellido}</p>
                 <p className="text-white/75 text-[9px] truncate leading-tight">{usuario.email}</p>
               </div>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </button>
           ) : (
             <div className="flex justify-center">
@@ -252,67 +267,93 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* ── Inicio ───────────────────────────────────────────────── */}
-        <div className="shrink-0 px-2 pt-3 pb-1">
+        {/* Misma anatomía que un módulo (contenedor, cuadro del icono y
+            tipografía) para que alinee con ellos; sin chevron, no despliega. */}
+        <div className="shrink-0 px-2.5 pt-3 pb-1">
           <Link
             href="/dashboard"
             title={!sidebarOpen ? "Inicio" : undefined}
-            className={`flex items-center gap-2.5 h-9 rounded-lg text-[12px] transition-all ${sidebarOpen ? "px-3" : "justify-center"} ${
-              pathname === "/dashboard" ? "bg-white/20 text-white font-semibold" : "text-white/85 hover:bg-white/10 hover:text-white"
+            className={`w-full flex items-center rounded-xl transition-all ${
+              sidebarOpen ? "gap-3 px-2.5 py-2.5" : "justify-center py-2.5"
+            } ${
+              pathname === "/dashboard"
+                ? "bg-white/[0.10] ring-1 ring-inset ring-white/25"
+                : "bg-white/[0.04] hover:bg-white/[0.09]"
             }`}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-            {sidebarOpen && "Inicio"}
+            <span className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+              pathname === "/dashboard" ? "bg-blue-400 text-white" : "bg-white/15 text-white"
+            }`}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </span>
+            {sidebarOpen && (
+              <span className="flex-1 text-left text-[11.5px] font-semibold uppercase tracking-wide text-white/90">Inicio</span>
+            )}
           </Link>
         </div>
 
         {/* ── Módulos ───────────────────────────────────────────────── */}
-        <nav className="flex-1 px-2 pb-4 overflow-y-auto mt-1">
+        <nav className="nav-scroll flex-1 px-2.5 pb-4 overflow-y-auto mt-1 space-y-1.5">
           {visibleGroups.map((group) => {
             const isOpen    = collapsed[group.modulo_codigo] === true;
             const hasActive = group.opciones.some((op) => pathname === op.ruta);
+            const destacado = isOpen || hasActive;
             return (
-              <div key={group.modulo_codigo} className="mb-0.5">
+              <div key={group.modulo_codigo}>
                 <button
                   title={!sidebarOpen ? group.modulo_nombre : undefined}
                   onClick={() => sidebarOpen ? toggle(group.modulo_codigo) : setSidebarOpen(true)}
-                  className={`w-full flex items-center rounded-lg transition-all ${
-                    sidebarOpen ? "gap-2.5 px-3 py-2" : "justify-center py-2.5"
-                  } ${hasActive ? "bg-white/20 text-white" : "text-white/85 hover:bg-white/10 hover:text-white"}`}
+                  className={`w-full flex items-center rounded-xl transition-all ${
+                    sidebarOpen ? "gap-3 px-2.5 py-2.5" : "justify-center py-2.5"
+                  } ${
+                    destacado
+                      ? "bg-white/[0.10] ring-1 ring-inset ring-white/25"
+                      : "bg-white/[0.04] hover:bg-white/[0.09]"
+                  }`}
                 >
-                  <span className={`shrink-0 ${hasActive ? "text-white" : "text-white/80"}`}>
+                  <span className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                    destacado ? "bg-blue-400 text-white" : "bg-white/15 text-white"
+                  }`}>
                     {MODULO_ICONS[group.modulo_codigo]}
                   </span>
                   {sidebarOpen && (
                     <>
-                      <span className="flex-1 text-left text-[12px] font-medium">{group.modulo_nombre}</span>
-                      <svg className={`w-3 h-3 transition-transform duration-150 ${isOpen ? "rotate-90" : ""} ${hasActive ? "text-white/70" : "text-white/50"}`}
+                      <span className="flex-1 text-left text-[11.5px] font-semibold uppercase tracking-wide text-white/90">{group.modulo_nombre}</span>
+                      <svg className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""} text-white/60`}
                         fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
                       </svg>
                     </>
                   )}
                 </button>
 
                 {sidebarOpen && isOpen && (
-                  <div className="ml-3 mt-0.5 mb-1 pl-4 border-l border-white/10 space-y-0.5">
+                  <div className="mt-1.5 mb-1 ml-5 pl-3 border-l border-white/15 space-y-0.5">
                     {group.opciones.map((op) => {
                       const active = pathname === op.ruta;
+                      const chevron = (cls: string) => (
+                        <svg className={`w-3 h-3 mt-[3px] shrink-0 ${cls}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      );
                       if (!op.implementada) {
                         return (
                           <span key={op.ruta}
-                            className="flex items-center h-7 px-2 rounded-md text-[11px] text-white/20 cursor-default select-none">
-                            {op.nombre}
+                            className="flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[12px] leading-snug text-white/25 cursor-default select-none">
+                            {chevron("text-white/20")}
+                            <span>{op.nombre}</span>
                           </span>
                         );
                       }
                       return (
                         <Link key={op.ruta} href={op.ruta}
-                          className={`flex items-center h-7 px-2 rounded-md text-[11px] transition-all ${
-                            active ? "bg-white/20 text-white font-semibold" : "text-white/80 hover:bg-white/10 hover:text-white"
+                          className={`flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[12px] leading-snug transition-all ${
+                            active ? "bg-white/15 text-white font-semibold" : "text-white/75 hover:bg-white/[0.08] hover:text-white"
                           }`}>
-                          {op.nombre}
+                          {chevron(active ? "text-white/80" : "text-white/40")}
+                          <span>{op.nombre}</span>
                         </Link>
                       );
                     })}
@@ -323,8 +364,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        {/* Botón colapsar / expandir */}
-        <div className="shrink-0 border-t border-white/10 p-2">
+        {/* Botón colapsar / expandir (solo escritorio) */}
+        <div className="shrink-0 border-t border-white/10 p-2 hidden lg:block">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             title={sidebarOpen ? "Colapsar" : "Expandir"}
@@ -347,14 +388,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Toolbar */}
         <header className="h-10 bg-white border-b border-gray-200 flex items-center justify-between px-5 shrink-0">
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-            <Link href="/dashboard" className="hover:text-gray-600 transition-colors">Inicio</Link>
-            {breadcrumb && (
-              <>
-                <span className="text-gray-300">›</span>
-                <span className="text-gray-600 font-medium">{breadcrumb}</span>
-              </>
-            )}
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => setMobileOpen(true)} title="Menú"
+              className="lg:hidden text-gray-500 hover:text-gray-700 shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <div className="flex items-center gap-1.5 text-[11px] text-gray-400 truncate min-w-0">
+              <Link href="/dashboard" className="hover:text-gray-600 transition-colors shrink-0">Inicio</Link>
+              {breadcrumb && (
+                <>
+                  <span className="text-gray-300 shrink-0">›</span>
+                  <span className="text-gray-600 font-medium truncate">{breadcrumb}</span>
+                </>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {/* Badge TRM */}
@@ -378,9 +425,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             )}
             <button
-              onClick={() => { logout(); router.push("/login"); }}
+              onClick={() => setAyudaOpen(true)}
+              title="Manual de ayuda"
+              className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-colors text-[12px] font-bold shadow-sm"
+            >
+              ?
+            </button>
+            <button
+              onClick={() => setLogoutConfirm(true)}
               title="Cerrar sesión"
-              className="text-gray-400 hover:text-red-500 transition-colors"
+              className="flex items-center justify-center w-6 h-6 rounded-full text-blue-600 hover:text-white hover:bg-blue-600 transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -399,6 +453,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </MenuContext.Provider>
         </main>
       </div>
+
+      {/* ── Panel de ayuda contextual ────────────────────────────── */}
+      <AyudaPanel open={ayudaOpen} onClose={() => setAyudaOpen(false)} />
+
+      {/* ── Confirmar cerrar sesión ──────────────────────────────── */}
+      {logoutConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </div>
+            <h3 className="text-[15px] font-semibold text-gray-800 mb-5">¿Estás seguro de que deseas salir?</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setLogoutConfirm(false)}
+                className="flex-1 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                Cancelar
+              </button>
+              <button onClick={() => { logout(); router.push("/login"); }}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-semibold rounded-lg transition-colors">
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal TRM ────────────────────────────────────────────── */}
       {trmModal && (

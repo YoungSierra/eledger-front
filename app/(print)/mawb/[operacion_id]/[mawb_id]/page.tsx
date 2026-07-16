@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import DraftWatermark from "../../../DraftWatermark";
 
 const LEGAL = "It is agreed that the goods described herein are accepted in apparent good order and condition (except as noted) for carriage SUBJECT TO THE CONDITIONS OF CONTRACT ON THE REVERSE HEREOF. ALL GOODS MAY BE CARRIED BY ANY OTHER MEANS INCLUDING ROAD OR ANY OTHER CARRIER UNLESS SPECIFIC CONTRARY INSTRUCTIONS ARE GIVEN HEREON BY THE SHIPPER, AND SHIPPER AGREES THAT THE SHIPMENT MAY BE CARRIED VIA INTERMEDIATE STOPPING PLACES WHICH THE CARRIER DEEMS APPROPRIATE. THE SHIPPER'S ATTENTION IS DRAWN TO THE NOTICE CONCERNING CARRIER'S LIMITATION OF LIABILITY. Shipper may increase such limitation of liability by declaring a higher value for carriage and paying a supplemental charge if required.";
 
@@ -61,6 +62,8 @@ function MawbDoc({
   const lugarTexto = mawb.lugar_ejecucion ?? "BOGOTA - COLOMBIA";
 
   return (
+    <>
+    <DraftWatermark estado={mawb.estado} />
     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
       <colgroup>
         {Array.from({ length: 20 }, (_, i) => <col key={i} style={{ width: "5%" }} />)}
@@ -396,6 +399,7 @@ function MawbDoc({
 
       </tbody>
     </table>
+    </>
   );
 }
 
@@ -444,7 +448,7 @@ export default function MawbPrintPage({ params }: { params: Promise<{ operacion_
       `}</style>
 
       {/* Toolbar */}
-      <div className="no-print" style={{ padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ fontSize: 12, color: "#475569" }}>
             <strong>MAWB</strong> · {mawb.numero_mawb} · A4 Landscape
@@ -459,7 +463,7 @@ export default function MawbPrintPage({ params }: { params: Promise<{ operacion_
         </div>
         <button onClick={() => window.print()}
           style={{ padding: "5px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / PDF
+          Imprimir
         </button>
       </div>
 

@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Periodo {
   id: string; anio: number; mes: number;
@@ -20,10 +22,13 @@ const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] 
 const ESTADO_BADGE: Record<string, string> = {
   abierto:   "bg-green-50 text-green-700",
   cerrado:   "bg-gray-100 text-gray-500",
-  bloqueado: "bg-red-50 text-red-600",
+  bloqueado: "bg-blue-50 text-blue-600",
 };
 const ESTADO_DOT: Record<string, string> = {
-  abierto: "bg-green-500", cerrado: "bg-gray-400", bloqueado: "bg-red-500",
+  abierto: "bg-green-500", cerrado: "bg-gray-400", bloqueado: "bg-blue-500",
+};
+const ESTADO_LABEL: Record<string, string> = {
+  abierto: "Abierto", cerrado: "Cerrado", bloqueado: "Por abrir",
 };
 
 const anioActual = new Date().getFullYear();
@@ -42,7 +47,7 @@ export default function PeriodosPage() {
   const [loading, setLoading]           = useState(true);
   const [filtroAnio, setFiltroAnio]     = useState<string>(String(anioActual));
   const [drawer, setDrawer]             = useState<"crear" | "editar" | null>(null);
-  const [modalAccion, setModalAccion]   = useState<"cerrar" | "reabrir" | null>(null);
+  const [modalAccion, setModalAccion]   = useState<"cerrar" | "reabrir" | "iniciar" | null>(null);
   const [seleccionado, setSeleccionado] = useState<Periodo | null>(null);
   const [motivo, setMotivo]             = useState("");
   const [form, setForm]                 = useState({
@@ -54,24 +59,31 @@ export default function PeriodosPage() {
   const [error, setError]     = useState("");
   const [pagina, setPagina]   = useState(1);
   const porPagina             = 12;
+  const { orden, alternar } = useOrden<"periodo" | "vigencia" | "estado">("periodo", "desc", () => setPagina(1));
 
   async function cargar() {
     setLoading(true);
-    const params = filtroAnio ? `?anio=${filtroAnio}` : "";
-    setPeriodos(await apiFetch<Periodo[]>(`/periodos${params}`));
-    setPagina(1);
+    setPeriodos(await apiFetch<Periodo[]>(`/periodos`));
     setLoading(false);
   }
 
-  useEffect(() => { cargar(); }, [filtroAnio]);
+  useEffect(() => { cargar(); }, []);
+  useEffect(() => { setPagina(1); }, [filtroAnio]);
 
   function cerrarDrawer() { setDrawer(null); setSeleccionado(null); setError(""); }
   function cerrarModal()  { setModalAccion(null); setSeleccionado(null); setError(""); setMotivo(""); }
 
   function abrirCrear() {
-    setForm({ anio: anioActual, mes: mesActual,
-      fecha_inicio: primerDia(anioActual, mesActual),
-      fecha_cierre: ultimoDia(anioActual, mesActual) });
+    let anio = anioActual;
+    let mes = mesActual;
+    // Con filtro de año activo, precargar ese año y el mes siguiente al último
+    // período existente (Enero si el año aún no tiene ninguno).
+    if (filtroAnio) {
+      anio = Number(filtroAnio);
+      const meses = periodos.filter((p) => p.anio === anio).map((p) => p.mes);
+      mes = meses.length === 0 ? 1 : Math.min(Math.max(...meses) + 1, 12);
+    }
+    setForm({ anio, mes, fecha_inicio: primerDia(anio, mes), fecha_cierre: ultimoDia(anio, mes) });
     setSeleccionado(null); setError(""); setDrawer("crear");
   }
 
@@ -109,6 +121,28 @@ export default function PeriodosPage() {
     } finally { setSaving(false); }
   }
 
+  async function generarAnio() {
+    setSaving(true); setError("");
+    try {
+      await apiFetch("/periodos/generar-anio", { method: "POST", body: JSON.stringify({ anio: form.anio }) });
+      cerrarDrawer();
+      setFiltroAnio(String(form.anio));
+      cargar();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error al generar los períodos");
+    } finally { setSaving(false); }
+  }
+
+  async function confirmarIniciar() {
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/periodos/${seleccionado!.id}/iniciar`, { method: "POST" });
+      cerrarModal(); cargar();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error al iniciar");
+    } finally { setSaving(false); }
+  }
+
   async function confirmarReabrir() {
     if (!motivo.trim()) { setError("Debes ingresar un motivo de reapertura"); return; }
     setSaving(true); setError("");
@@ -120,10 +154,34 @@ export default function PeriodosPage() {
     } finally { setSaving(false); }
   }
 
-  const aniosDisponibles = Array.from({ length: 5 }, (_, i) => 2026 + i);
-  const totalPaginas = Math.max(1, Math.ceil(periodos.length / porPagina));
+  // Filtro de años: SOLO los años que tienen períodos + el año actual, del más
+  // reciente al más antiguo. Así la fila refleja la realidad y no se llena de
+  // años futuros vacíos ni acumula años para siempre.
+  const aniosFiltro = Array.from(new Set([anioActual, ...periodos.map((p) => p.anio)]))
+    .sort((a, b) => a - b);
+  // Select del drawer (crear): ventana hacia adelante para poder crear anticipado,
+  // más cualquier año que ya tenga datos. Desde 2026 (inicio) hasta año actual + 10.
+  const aniosDisponibles = Array.from(
+    new Set([
+      ...Array.from({ length: anioActual + 10 - 2026 + 1 }, (_, i) => 2026 + i),
+      ...periodos.map((p) => p.anio),
+    ])
+  ).sort((a, b) => a - b);
+
+  const periodosFiltrados = filtroAnio ? periodos.filter((p) => String(p.anio) === filtroAnio) : periodos;
+  // Se ordena la lista completa antes de paginar. El período es cronológico:
+  // año y mes se combinan en un solo número para que Enero 2027 no quede antes
+  // que Diciembre 2026.
+  const ordenada = ordenarFilas(periodosFiltrados, orden, {
+    periodo:  (p) => p.anio * 100 + p.mes,
+    vigencia: (p) => p.fecha_inicio,
+    estado:   (p) => ESTADO_LABEL[p.estado],
+  });
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = periodos.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  // Meses ya existentes del año seleccionado en el drawer.
+  const anioCompleto = periodos.filter((p) => p.anio === form.anio).length >= 12;
 
   return (
     <div className="h-full flex flex-col">
@@ -149,7 +207,7 @@ export default function PeriodosPage() {
             className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${filtroAnio === "" ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
             Todos
           </button>
-          {aniosDisponibles.map((a) => (
+          {aniosFiltro.map((a) => (
             <button key={a} onClick={() => setFiltroAnio(String(a))}
               className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${filtroAnio === String(a) ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
               {a}
@@ -159,43 +217,58 @@ export default function PeriodosPage() {
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-4xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
-            <thead className="sticky top-0 bg-white z-10">
-              <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Período</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Fecha inicio</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Fecha cierre</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Estado</th>
-                <th className="px-4 py-2.5 w-20"></th>
+          <table className="w-full min-w-[520px] text-[12px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
+              <tr className="border-b border-gray-200">
+                <Th campo="periodo"  orden={orden} alternar={alternar}>Período</Th>
+                <Th campo="vigencia" orden={orden} alternar={alternar}>Vigencia</Th>
+                <Th campo="estado"   orden={orden} alternar={alternar}>Estado</Th>
+                <th className="px-4 py-2.5 w-24"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : filas.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Sin períodos registrados</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">Sin períodos registrados</td></tr>
               ) : filas.map((p) => (
-                <tr key={p.id} className="hover:bg-blue-50/20 transition-colors">
-                  <td className="px-4 py-2.5 font-medium text-gray-800">{MESES[p.mes - 1]} {p.anio}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{p.fecha_inicio}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{p.fecha_cierre}</td>
-                  <td className="px-4 py-2.5">
+                <tr key={p.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-semibold text-blue-600">{MESES[p.mes - 1]} {p.anio}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className="font-mono text-[11.5px] text-gray-500">{p.fecha_inicio}</span>
+                    <span className="text-gray-300 mx-1.5">→</span>
+                    <span className="font-mono text-[11.5px] text-gray-500">{p.fecha_cierre}</span>
+                  </td>
+                  <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${ESTADO_BADGE[p.estado]}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${ESTADO_DOT[p.estado]}`} />
-                      {p.estado.charAt(0).toUpperCase() + p.estado.slice(1)}
+                      {ESTADO_LABEL[p.estado]}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      {p.estado === "abierto" && (
+                      {p.estado === "bloqueado" && (
+                        <button onClick={() => { setSeleccionado(p); setError(""); setModalAccion("iniciar"); }}
+                          title="Abrir período"
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition-colors">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                          </svg>
+                        </button>
+                      )}
+                      {(p.estado === "abierto" || p.estado === "bloqueado") && (
                         <button onClick={() => abrirEditar(p)} title="Editar fechas"
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </button>
                       )}
-                      {p.estado === "abierto" && (
+                      {(p.estado === "abierto" || p.estado === "bloqueado") && (
                         <button onClick={() => { setSeleccionado(p); setError(""); setModalAccion("cerrar"); }}
                           title="Cerrar período"
                           className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors">
@@ -224,7 +297,7 @@ export default function PeriodosPage() {
         {/* Paginación */}
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
-            {periodos.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, periodos.length)}`} de {periodos.length}
+            {periodosFiltrados.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, periodosFiltrados.length)}`} de {periodosFiltrados.length}
           </span>
           <div className="flex items-center gap-1">
             <button onClick={() => setPagina(1)} disabled={paginaActual === 1} className="px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-100 rounded disabled:opacity-30">«</button>
@@ -240,20 +313,13 @@ export default function PeriodosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[380px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {drawer === "crear" ? "Nuevo período" : "Editar fechas"}
-                </h2>
-                {seleccionado && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">{MESES[seleccionado.mes - 1]} {seleccionado.anio}</p>
-                )}
-              </div>
-              <button onClick={cerrarDrawer} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo período" : "Editar fechas"}
+              subtitle={seleccionado ? `${MESES[seleccionado.mes - 1]} ${seleccionado.anio}` : undefined}
+              onClose={cerrarDrawer}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
+            />
             <form onSubmit={guardarDrawer} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {drawer === "crear" && (
                 <div className="grid grid-cols-2 gap-3">
@@ -287,8 +353,22 @@ export default function PeriodosPage() {
               </div>
               {drawer === "editar" && (
                 <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-1.5">
-                  Solo se pueden modificar fechas mientras el período está abierto.
+                  Solo se pueden modificar fechas mientras el período está abierto o programado.
                 </p>
+              )}
+              {drawer === "crear" && (
+                <div className="border-t border-gray-100 pt-3">
+                  <button type="button" onClick={generarAnio} disabled={saving || anioCompleto}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-600 text-[12px] font-medium hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+                    Generar todos los períodos de {form.anio}
+                  </button>
+                  <p className="text-[10.5px] text-gray-400 mt-1.5 text-center">
+                    {anioCompleto
+                      ? `El año ${form.anio} ya tiene los 12 períodos.`
+                      : "Crea los 12 meses del año en estado “Por abrir”; omite los que ya existan."}
+                  </p>
+                </div>
               )}
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">{error}</p>}
             </form>
@@ -300,6 +380,29 @@ export default function PeriodosPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Modal — Iniciar período */}
+      {modalAccion === "iniciar" && seleccionado && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Abrir período</h2>
+            <p className="text-[12px] text-gray-500 mb-3">
+              ¿Confirmas abrir <strong>{MESES[seleccionado.mes - 1]} {seleccionado.anio}</strong>? Quedará abierto y aceptará transacciones.
+            </p>
+            <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-1.5 mb-4">
+              Si el cierre automático está activo, el período abierto anterior se cerrará al abrir este.
+            </p>
+            {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <button onClick={cerrarModal} className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button onClick={confirmarIniciar} disabled={saving}
+                className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Abriendo..." : "Abrir período"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal — Cerrar período */}

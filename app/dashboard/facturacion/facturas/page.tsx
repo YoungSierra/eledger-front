@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -620,7 +621,7 @@ function Modal({
               )}
             </div>
             <div className="border border-gray-200 rounded-xl overflow-y-auto max-h-56">
-              <table className="w-full text-[11px]">
+              <table className="w-full min-w-[680px] text-[11px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 font-semibold text-[10px] uppercase tracking-wide">
                     <th className="px-2 py-2 text-center" style={{ width: "20%" }}>Producto</th>
@@ -837,16 +838,10 @@ function Modal({
         <div className="px-6 py-3.5 border-t border-gray-100 flex items-center justify-between shrink-0 bg-gray-50/50">
           <div className="flex gap-2">
             {factura?.estado === "contabilizada" && !showAnular && (
-              <>
-                <a href={`/factura/${factura.id}`} target="_blank" rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
-                  Imprimir
-                </a>
-                <button onClick={() => setShowAnular(true)}
-                  className="px-3 py-1.5 text-[12px] font-medium border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors">
-                  Anular
-                </button>
-              </>
+              <button onClick={() => setShowAnular(true)}
+                className="px-3 py-1.5 text-[12px] font-medium border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors">
+                Anular
+              </button>
             )}
             {showAnular && (
               <button onClick={anular} disabled={saving}
@@ -856,6 +851,12 @@ function Modal({
             )}
           </div>
           <div className="flex gap-2">
+            {factura?.estado === "contabilizada" && !showAnular && (
+              <a href={`/factura/${factura.id}`} target="_blank" rel="noopener noreferrer"
+                className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
+                Imprimir
+              </a>
+            )}
             <button onClick={onClose}
               className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
               {soloLectura ? "Cerrar" : "Cancelar"}
@@ -889,6 +890,9 @@ export default function FacturasPage() {
   const [pagina, setPagina] = useState(1);
   const porPagina = 50;
   const [loading, setLoading] = useState(false);
+  const { orden, alternar } = useOrden<
+    "numero" | "fecha" | "vencimiento" | "cliente" | "subtotal" | "iva" | "total" | "estado"
+  >("fecha", "desc");
 
   const [fEstado, setFEstado] = useState("");
   const [fDesde, setFDesde] = useState("");
@@ -938,6 +942,18 @@ export default function FacturasPage() {
     setActiva(data); setModo("ver");
   }
   function cerrar() { setModo("cerrado"); setActiva(null); }
+
+  // El backend pagina; se ordena la página cargada antes de pintarla.
+  const ordenada = ordenarFilas(lista, orden, {
+    numero:      (d) => d.numero,
+    fecha:       (d) => d.fecha,
+    vencimiento: (d) => d.fecha_vencimiento,
+    cliente:     (d) => d.cliente_nombre,
+    subtotal:    (d) => Number(d.subtotal),
+    iva:         (d) => Number(d.total_iva),
+    total:       (d) => Number(d.total),
+    estado:      (d) => d.estado,
+  });
 
   const totalPags = Math.max(1, Math.ceil(totalItems / porPagina));
 
@@ -989,12 +1005,18 @@ export default function FacturasPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
+          <table className="w-full min-w-[760px] text-[12px]">
             <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
               <tr>
-                {["Número", "Fecha", "Vencimiento", "Cliente", "Subtotal", "IVA", "Total", "Estado", ""].map(h => (
-                  <th key={h} className={`${["Subtotal","IVA","Total"].includes(h) ? "text-right" : "text-left"} px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap`}>{h}</th>
-                ))}
+                <Th campo="numero"      orden={orden} alternar={alternar} className="whitespace-nowrap">Número</Th>
+                <Th campo="fecha"       orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
+                <Th campo="vencimiento" orden={orden} alternar={alternar} className="whitespace-nowrap">Vencimiento</Th>
+                <Th campo="cliente"     orden={orden} alternar={alternar} className="whitespace-nowrap">Cliente</Th>
+                <Th campo="subtotal"    orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Subtotal</Th>
+                <Th campo="iva"         orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">IVA</Th>
+                <Th campo="total"       orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Total</Th>
+                <Th campo="estado"      orden={orden} alternar={alternar} className="whitespace-nowrap">Estado</Th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -1002,7 +1024,7 @@ export default function FacturasPage() {
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando…</td></tr>
               ) : lista.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Sin facturas registradas</td></tr>
-              ) : lista.map(d => {
+              ) : ordenada.map(d => {
                 const vencida  = d.dias_vencimiento !== null && d.dias_vencimiento < 0;
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -17,7 +17,7 @@ function fmt(v: string | number) {
 }
 function fmtS(v: string | number) {
   const n = parseFloat(String(v));
-  if (n === 0) return "—";
+  if (n === 0) return "â€”";
   const a = Math.abs(n).toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n < 0 ? `(${a})` : a;
 }
@@ -59,13 +59,13 @@ function AuxiliarContent() {
     <>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { overflow: auto !important; height: auto !important; }
+        html, body { overflow: auto !important; height: auto !important; background: #fff; }
         body { background: #fff; font-family: system-ui, sans-serif; color: #1e293b; }
         @page { margin: 12mm 15mm; size: A4 landscape; }
         @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } .no-print { display: none !important; } }
       `}</style>
-      <div className="no-print" style={{ padding: "8px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
-        <button onClick={() => window.print()} style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Imprimir / PDF</button>
+      <div className="no-print" style={{ padding: "10px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
+        <button onClick={() => window.print()} style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Imprimir</button>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 28px", fontSize: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid #1e293b" }}>
@@ -74,15 +74,15 @@ function AuxiliarContent() {
             <img src="/logo.png" alt="" style={{ height: 36, marginBottom: 4, objectFit: "contain" }} />
             <div style={{ fontWeight: 700, fontSize: 11 }}>{empresa?.razon_social ?? ""}</div>
             {nit && <div style={{ color: "#64748b" }}>NIT: {nit}</div>}
-            {empresa?.direccion && <div style={{ color: "#64748b" }}>{empresa.direccion}{empresa.ciudad ? ` · ${empresa.ciudad}` : ""}</div>}
+            {empresa?.direccion && <div style={{ color: "#64748b" }}>{empresa.direccion}{empresa.ciudad ? ` Â· ${empresa.ciudad}` : ""}</div>}
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ border: "2px solid #1e293b", borderRadius: 7, padding: "8px 16px", display: "inline-block" }}>
+            <div style={{ border: "2px solid #1e293b", borderRadius: 7, padding: "10px 20px", display: "inline-block" }}>
               <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#64748b" }}>Auxiliar por Tercero</div>
             </div>
             <div style={{ marginTop: 6, color: "#64748b", fontSize: 9 }}>
-              <div><strong>Período:</strong> {data.fecha_desde} — {data.fecha_hasta}</div>
-              <div><strong>Cuentas:</strong> {data.cuenta_desde} — {data.cuenta_hasta}</div>
+              <div><strong>PerÃ­odo:</strong> {data.fecha_desde} â€” {data.fecha_hasta}</div>
+              <div><strong>Cuentas:</strong> {data.cuenta_desde} â€” {data.cuenta_hasta}</div>
               <div><strong>Generado:</strong> {hoy}</div>
             </div>
           </div>
@@ -99,7 +99,7 @@ function AuxiliarContent() {
               <div key={si}>
                 <div style={{ background: "#2563eb", color: "#fff", padding: "3px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span>
-                    {sec.tercero_nit && <span style={{ fontFamily: "monospace", fontSize: 8.5, color: "#bfdbfe", marginRight: 6 }}>{sec.tercero_nit} ·</span>}
+                    {sec.tercero_nit && <span style={{ fontFamily: "monospace", fontSize: 8.5, color: "#bfdbfe", marginRight: 6 }}>{sec.tercero_nit} Â·</span>}
                     <span style={{ fontWeight: 700, fontSize: 9.5 }}>{sec.tercero_nombre}</span>
                   </span>
                   <span style={{ fontSize: 8.5 }}>Saldo inicial: <strong>{fmtS(sec.saldo_inicial)}</strong></span>
@@ -108,10 +108,10 @@ function AuxiliarContent() {
                   <thead>
                     <tr>
                       <th style={{ ...th, textAlign: "left", width: 72 }}>Fecha</th>
-                      <th style={{ ...th, textAlign: "left", width: 65 }}>N° Asiento</th>
-                      <th style={{ ...th, textAlign: "left" }}>Descripción</th>
-                      <th style={{ ...thR, width: 90 }}>Débito</th>
-                      <th style={{ ...thR, width: 90 }}>Crédito</th>
+                      <th style={{ ...th, textAlign: "left", width: 65 }}>NÂ° Asiento</th>
+                      <th style={{ ...th, textAlign: "left" }}>DescripciÃ³n</th>
+                      <th style={{ ...thR, width: 90 }}>DÃ©bito</th>
+                      <th style={{ ...thR, width: 90 }}>CrÃ©dito</th>
                       <th style={{ ...thR, width: 90 }}>Saldo</th>
                     </tr>
                   </thead>
@@ -152,3 +152,4 @@ function AuxiliarContent() {
 export default function ImprimirAuxiliarPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: "#999" }}>Cargando...</div>}><AuxiliarContent /></Suspense>;
 }
+

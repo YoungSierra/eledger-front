@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
@@ -95,7 +95,7 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
       <div className="no-print" style={{ padding: "12px 20px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
         <button onClick={() => window.print()}
           style={{ padding: "6px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Imprimir / Guardar PDF
+          Imprimir
         </button>
       </div>
 

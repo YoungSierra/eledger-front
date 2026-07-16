@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Tercero {
   id: string;
@@ -102,6 +104,10 @@ export default function TercerosPage() {
   const [pagina, setPagina]     = useState(1);
   const [porPagina, setPorPagina] = useState(25);
   const [asesores, setAsesores] = useState<Asesor[]>([]);
+  // El backend lista por razón social ascendente — ese es el orden inicial.
+  const { orden, alternar } = useOrden<
+    "nit" | "razon_social" | "tipo" | "pais" | "ciudad" | "telefono" | "contacto" | "estado"
+  >("razon_social", "asc", () => setPagina(1));
 
   useEffect(() => {
     apiFetch<{ id: string; nombre: string; apellido: string; es_asesor: boolean }[]>("/usuarios?solo_activos=true")
@@ -196,9 +202,21 @@ export default function TercerosPage() {
 
   const esNatural = form.tipo_persona === "NATURAL";
 
-  const totalPaginas = Math.max(1, Math.ceil(lista.length / porPagina));
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(lista, orden, {
+    nit:          (t) => t.nit,
+    razon_social: (t) => t.razon_social,
+    tipo:         (t) => t.tipo_tercero,
+    pais:         (t) => t.pais,
+    ciudad:       (t) => t.ciudad,
+    telefono:     (t) => t.telefono,
+    contacto:     (t) => t.nombre_contacto,
+    estado:       (t) => (t.activo ? 1 : 0),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = lista.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   return (
     <div className="h-full flex flex-col">
@@ -244,38 +262,40 @@ export default function TercerosPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-        <table className="w-full">
-          <thead className="sticky top-0 bg-white z-10">
+        <table className="w-full min-w-[760px]">
+          <thead className="sticky top-0 bg-gray-50/70 z-10">
             <tr className="border-b border-gray-100">
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap">NIT</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Razón social</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Tipo</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">País</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Ciudad</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Teléfono</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Contacto</th>
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Estado</th>
+              <Th campo="nit"          orden={orden} alternar={alternar} className="whitespace-nowrap">NIT</Th>
+              <Th campo="razon_social" orden={orden} alternar={alternar}>Razón social</Th>
+              <Th campo="tipo"         orden={orden} alternar={alternar}>Tipo</Th>
+              <Th campo="pais"         orden={orden} alternar={alternar}>País</Th>
+              <Th campo="ciudad"       orden={orden} alternar={alternar}>Ciudad</Th>
+              <Th campo="telefono"     orden={orden} alternar={alternar}>Teléfono</Th>
+              <Th campo="contacto"     orden={orden} alternar={alternar}>Contacto</Th>
+              <Th campo="estado"       orden={orden} alternar={alternar}>Estado</Th>
               <th className="px-4 py-2.5 w-8"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-50">
             {filas.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-8 text-center text-[12px] text-gray-400">Sin resultados</td></tr>
             ) : filas.map((t) => (
-              <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="px-4 py-2.5 font-mono text-[11px] text-gray-600 whitespace-nowrap">
-                  {t.nit}{t.digito_verif ? `-${t.digito_verif}` : ""}
+              <tr key={t.id} className="hover:bg-blue-50/30 transition-colors">
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono font-semibold text-[11px] text-blue-600">{t.nit}{t.digito_verif ? `-${t.digito_verif}` : ""}</span>
+                  </div>
                 </td>
-                <td className="px-4 py-2.5 text-[12px] text-gray-800 font-medium">{t.razon_social}</td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">{t.razon_social}</td>
+                <td className="px-4 py-3">
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TIPO_COLOR[t.tipo_tercero]}`}>
                     {t.tipo_tercero}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-[12px] text-gray-500">{t.pais ?? "—"}</td>
-                <td className="px-4 py-2.5 text-[12px] text-gray-500">{t.ciudad ?? "—"}</td>
-                <td className="px-4 py-2.5 text-[12px] text-gray-500">{t.telefono ?? "—"}</td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-3 text-[12px] text-gray-500">{t.pais ?? "—"}</td>
+                <td className="px-4 py-3 text-[12px] text-gray-500">{t.ciudad ?? "—"}</td>
+                <td className="px-4 py-3 text-[12px] text-gray-500">{t.telefono ?? "—"}</td>
+                <td className="px-4 py-3">
                   {t.nombre_contacto ? (
                     <div>
                       <div className="text-[11px] text-gray-700 font-medium">{t.nombre_contacto}</div>
@@ -283,12 +303,12 @@ export default function TercerosPage() {
                     </div>
                   ) : <span className="text-[12px] text-gray-400">—</span>}
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-3">
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${t.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
                     {t.activo ? "Activo" : "Inactivo"}
                   </span>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
                     <button onClick={() => abrirEditar(t)} title="Editar"
                       className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
@@ -351,22 +371,15 @@ export default function TercerosPage() {
           <div className="fixed inset-0 bg-black/20 z-40" />
 
           {/* Panel */}
-          <div className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col">
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
 
             {/* Header drawer */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {drawer === "crear" ? "Nuevo tercero" : "Editar tercero"}
-                </h2>
-                {seleccionado && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">{seleccionado.nit} · {seleccionado.razon_social}</p>
-                )}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+            <DrawerHeader
+              title={drawer === "crear" ? "Nuevo tercero" : "Editar tercero"}
+              subtitle={seleccionado ? `${seleccionado.nit} · ${seleccionado.razon_social}` : undefined}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
+            />
 
             {/* Contenido scrolleable */}
             <form onSubmit={guardar} className="flex-1 overflow-y-auto px-5 py-4">

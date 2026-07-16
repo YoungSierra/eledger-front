@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -186,7 +187,12 @@ export default function AsientosPage() {
   const [total, setTotal]   = useState(0);
   const [pagina, setPagina] = useState(1);
   const porPagina = 50;
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const hasBuscado = useRef(false);
+  // El backend lista por número descendente — ese es el orden inicial.
+  const { orden, alternar } = useOrden<
+    "numero" | "documento" | "fecha" | "descripcion" | "tipo" | "debitos" | "creditos" | "estado"
+  >("numero", "desc", () => setPagina(1));
 
   // Filtros
   const [fEstado, setFEstado] = useState("");
@@ -243,10 +249,10 @@ export default function AsientosPage() {
       const res = await apiFetch<ListResponse>(`/asientos?${p}`);
       setLista(res.items); setTotal(res.total);
     } finally { setLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fEstado, fTipo, fDesde, fHasta]);
 
-  useEffect(() => { setPagina(1); cargar(1); }, [fEstado, fTipo, fDesde, fHasta]);
-  useEffect(() => { cargar(pagina); }, [pagina]);
+  useEffect(() => { if (hasBuscado.current) cargar(pagina); }, [pagina]);
 
   // ── Abrir modal ────────────────────────────────────────────────────────────
 
@@ -440,6 +446,19 @@ export default function AsientosPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  // El backend pagina; se ordena la página cargada antes de pintarla.
+  // Solo el listado de asientos — las líneas de un asiento conservan su orden contable.
+  const ordenada = ordenarFilas(lista, orden, {
+    numero:      (a) => a.numero,
+    documento:   (a) => a.documento_numero,
+    fecha:       (a) => a.fecha,
+    descripcion: (a) => a.descripcion,
+    tipo:        (a) => a.tipo_documento_codigo,
+    debitos:     (a) => Number(a.total_debito),
+    creditos:    (a) => Number(a.total_credito),
+    estado:      (a) => a.estado,
+  });
+
   const totalPags   = Math.max(1, Math.ceil(total / porPagina));
   const modoEdicion = modo === "crear" || modo === "editar";
 
@@ -473,9 +492,8 @@ export default function AsientosPage() {
           <label className={lbl}>Tipo</label>
           <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="">Todos</option>
-            {["contabilidad", "facturacion", "cxc", "cxp", "compras", "bancos"].map((mod) => {
+            {Array.from(new Set(tiposDoc.map((t) => t.tipo_documento_modulo))).sort().map((mod) => {
               const items = tiposDoc.filter((t) => t.tipo_documento_modulo === mod);
-              if (!items.length) return null;
               return (
                 <optgroup key={mod} label={mod.charAt(0).toUpperCase() + mod.slice(1)}>
                   {items.map((t) => <option key={t.tipo_documento_id} value={t.tipo_documento_id}>{t.tipo_documento_codigo} — {t.tipo_documento_nombre}</option>)}
@@ -492,6 +510,10 @@ export default function AsientosPage() {
           <label className={lbl}>Hasta</label>
           <input type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
+        <button onClick={() => { hasBuscado.current = true; setPagina(1); cargar(1); }} disabled={loading}
+          className="px-4 py-1.5 bg-blue-600 text-white text-[12px] rounded-md hover:bg-blue-700 disabled:opacity-50">
+          {loading ? "Buscando…" : "Buscar"}
+        </button>
         {(fEstado || fTipo || fDesde || fHasta) && (
           <button onClick={() => { setFEstado(""); setFTipo(""); setFDesde(""); setFHasta(""); }}
             className="text-[11px] text-gray-400 hover:text-gray-600 underline pb-0.5">Limpiar</button>
@@ -501,20 +523,26 @@ export default function AsientosPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
+          <table className="w-full min-w-[760px] text-[12px]">
             <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
               <tr>
-                {["#", "Documento", "Fecha", "Descripción", "Tipo", "Débitos", "Créditos", "Estado", ""].map((h) => (
-                  <th key={h} className="text-left px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap">{h}</th>
-                ))}
+                <Th campo="numero"      orden={orden} alternar={alternar} className="whitespace-nowrap">#</Th>
+                <Th campo="documento"   orden={orden} alternar={alternar} className="whitespace-nowrap">Documento</Th>
+                <Th campo="fecha"       orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
+                <Th campo="descripcion" orden={orden} alternar={alternar} className="whitespace-nowrap">Descripción</Th>
+                <Th campo="tipo"        orden={orden} alternar={alternar} className="whitespace-nowrap">Tipo</Th>
+                <Th campo="debitos"     orden={orden} alternar={alternar} className="whitespace-nowrap">Débitos</Th>
+                <Th campo="creditos"    orden={orden} alternar={alternar} className="whitespace-nowrap">Créditos</Th>
+                <Th campo="estado"      orden={orden} alternar={alternar} className="whitespace-nowrap">Estado</Th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
-              ) : lista.length === 0 ? (
+              ) : ordenada.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Sin asientos registrados</td></tr>
-              ) : lista.map((a) => (
+              ) : ordenada.map((a) => (
                 <tr key={a.id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="px-3 py-2.5 text-[11px] font-mono text-gray-400">{a.numero}</td>
                   <td className="px-3 py-2.5 font-mono font-semibold text-blue-600">
@@ -676,8 +704,8 @@ export default function AsientosPage() {
                   )}
                 </div>
 
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <table className="w-full">
+                <div className="border border-gray-200 rounded-xl overflow-x-auto">
+                  <table className="w-full min-w-[680px]">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
                         <th className="text-left px-2 py-2 text-[10px] font-bold uppercase text-gray-400 w-[240px]">Cuenta</th>

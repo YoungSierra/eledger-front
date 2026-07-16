@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Item {
   id: string; numero: string;
@@ -37,6 +38,9 @@ export default function FacturacionElectronicaPage() {
   const [pagina, setPagina] = useState(1);
   const porPagina = 50;
   const [loading, setLoading] = useState(false);
+  const { orden, alternar } = useOrden<
+    "numero" | "fecha" | "cliente" | "total" | "dianEstado"
+  >("fecha", "desc");
 
   const [fDianEstado, setFDianEstado] = useState("");
   const [fDesde, setFDesde] = useState("");
@@ -57,6 +61,16 @@ export default function FacturacionElectronicaPage() {
 
   useEffect(() => { cargar(pagina); }, [pagina]);
   useEffect(() => { setPagina(1); cargar(1); }, [fDianEstado, fDesde, fHasta]);
+
+  // El backend pagina; se ordena la página cargada antes de pintarla.
+  const ordenada = ordenarFilas(lista, orden, {
+    numero:     (d) => d.numero,
+    fecha:      (d) => d.fecha,
+    cliente:    (d) => d.cliente_nombre,
+    total:      (d) => Number(d.total),
+    // dian_estado nulo se pinta como "pendiente": se ordena por lo que se ve.
+    dianEstado: (d) => d.dian_estado ?? "pendiente",
+  });
 
   const totalPags = Math.max(1, Math.ceil(totalItems / porPagina));
 
@@ -105,14 +119,17 @@ export default function FacturacionElectronicaPage() {
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-5xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
-            <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
+          <table className="w-full min-w-[760px] text-[12px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10 border-b border-gray-100">
               <tr>
-                {["Número","Fecha","Cliente","Total","Estado DIAN",""].map(h => (
-                  <th key={h} className={`${h === "Total" ? "text-right" : "text-left"} px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap`}>{h}</th>
-                ))}
+                <Th campo="numero"     orden={orden} alternar={alternar} className="whitespace-nowrap">Número</Th>
+                <Th campo="fecha"      orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
+                <Th campo="cliente"    orden={orden} alternar={alternar} className="whitespace-nowrap">Cliente</Th>
+                <Th campo="total"      orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Total</Th>
+                <Th campo="dianEstado" orden={orden} alternar={alternar} className="whitespace-nowrap">Estado DIAN</Th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -120,21 +137,25 @@ export default function FacturacionElectronicaPage() {
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando…</td></tr>
               ) : lista.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin facturas contabilizadas</td></tr>
-              ) : lista.map(d => (
-                <tr key={d.id} className="hover:bg-gray-50/60 transition-colors">
-                  <td className="px-3 py-2.5 font-mono font-semibold text-blue-600">{d.numero}</td>
-                  <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
-                  <td className="px-3 py-2.5 max-w-[200px]">
+              ) : ordenada.map(d => (
+                <tr key={d.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono font-semibold text-blue-600">{d.numero}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{d.fecha}</td>
+                  <td className="px-3 py-3 max-w-[200px]">
                     <div className="font-medium text-gray-800 truncate">{d.cliente_nombre ?? "—"}</div>
                     <div className="text-[10px] font-mono text-gray-400">{d.cliente_nit ?? ""}</div>
                   </td>
-                  <td className="px-3 py-2.5 text-right font-mono font-semibold text-gray-800">{fmt(d.total)}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-3 py-3 text-right font-mono font-semibold text-gray-800">{fmt(d.total)}</td>
+                  <td className="px-3 py-3">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${DIAN_BADGE[d.dian_estado ?? "pendiente"] ?? DIAN_BADGE.pendiente}`}>
                       {d.dian_estado ?? "pendiente"}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
                       <a href={`/factura/${d.id}`} target="_blank" rel="noopener noreferrer"
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Imprimir">

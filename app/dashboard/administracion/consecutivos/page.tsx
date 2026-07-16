@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Consecutivo {
   id: string;
@@ -44,6 +46,11 @@ export default function ConsecutivosPage() {
   const [nuevoForm, setNuevoForm]   = useState(EMPTY_NUEVO);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
+  const [colapsado, setColapsado] = useState<Record<string, boolean>>({});
+  // El orden es compartido por los grupos: se aplica dentro de cada módulo.
+  const { orden, alternar } = useOrden<
+    "codigo" | "tipo" | "prefijo" | "actual" | "inicio" | "longitud" | "ejemplo"
+  >("codigo", "asc");
 
   useEffect(() => { cargar(); }, []);
 
@@ -121,56 +128,76 @@ export default function ConsecutivosPage() {
         <p className="text-[12px] text-gray-400 mt-0.5">Configuración de numeración por tipo de documento</p>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto space-y-4">
+      <div className="flex-1 min-h-0 overflow-auto space-y-2 max-w-5xl">
         {loading ? (
           <p className="text-[12px] text-gray-400 text-center py-10">Cargando...</p>
-        ) : Object.entries(porModulo).map(([modulo, items]) => (
+        ) : Object.entries(porModulo).map(([modulo, items]) => {
+          const abierto = !colapsado[modulo];
+          return (
           <div key={modulo} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${MODULO_COLOR[modulo] ?? "bg-gray-100 text-gray-500"}`}>
-                {modulo.charAt(0).toUpperCase() + modulo.slice(1)}
-              </span>
-              {modulo === "contabilidad" && (
-                <button onClick={() => { setNuevoForm(EMPTY_NUEVO); setError(""); setModalNuevo(true); }}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-medium rounded-lg transition-colors">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  Nuevo
-                </button>
-              )}
+            <div onClick={() => setColapsado((p) => ({ ...p, [modulo]: !p[modulo] }))}
+              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50/50 transition-colors cursor-pointer select-none">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">{modulo}</span>
+              <div className="flex items-center gap-2.5">
+                {modulo === "contabilidad" && (
+                  <button onClick={(e) => { e.stopPropagation(); setNuevoForm(EMPTY_NUEVO); setError(""); setModalNuevo(true); }}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-medium rounded transition-colors">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Nuevo
+                  </button>
+                )}
+                <span className="text-[10px] text-gray-400">{items.length}</span>
+                <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${abierto ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6"/></svg>
+              </div>
             </div>
+            {abierto && (
+            <div className="border-t border-gray-100">
             <table className="w-full table-fixed">
               <colgroup>
                 <col className="w-20" />
-                <col className="w-48" />
+                <col className="w-52" />
                 <col className="w-20" />
                 <col className="w-24" />
                 <col className="w-20" />
                 <col className="w-20" />
                 <col className="w-32" />
-                <col className="w-16" />
+                <col className="w-20" />
               </colgroup>
               <thead>
-                <tr className="border-b border-gray-100">
-                  {["Código", "Tipo de documento", "Prefijo", "Nº actual", "Nº inicio", "Longitud", "Ejemplo", ""].map((h) => (
-                    <th key={h} className="text-left px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">{h}</th>
-                  ))}
+                <tr className="bg-gray-50/50 border-b border-gray-100">
+                  <Th campo="codigo"   orden={orden} alternar={alternar}>Código</Th>
+                  <Th campo="tipo"     orden={orden} alternar={alternar}>Tipo de documento</Th>
+                  <Th campo="prefijo"  orden={orden} alternar={alternar}>Prefijo</Th>
+                  <Th campo="actual"   orden={orden} alternar={alternar}>Nº actual</Th>
+                  <Th campo="inicio"   orden={orden} alternar={alternar}>Nº inicio</Th>
+                  <Th campo="longitud" orden={orden} alternar={alternar}>Longitud</Th>
+                  <Th campo="ejemplo"  orden={orden} alternar={alternar}>Ejemplo</Th>
+                  <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
-                    <td className="px-4 py-2.5 text-[11px] font-mono font-semibold text-blue-600">{c.tipo_documento_codigo}</td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-700">{c.tipo_documento_nombre}</td>
-                    <td className="px-4 py-2.5 text-[12px] font-mono text-gray-500">{c.prefijo ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-500">{c.numero_actual.toLocaleString("es-CO")}</td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-500">{c.numero_inicio.toLocaleString("es-CO")}</td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-500">{c.longitud_minima}</td>
-                    <td className="px-4 py-2.5">
+                {ordenarFilas(items, orden, {
+                  codigo:   (c) => c.tipo_documento_codigo,
+                  tipo:     (c) => c.tipo_documento_nombre,
+                  prefijo:  (c) => c.prefijo,
+                  actual:   (c) => c.numero_actual,
+                  inicio:   (c) => c.numero_inicio,
+                  longitud: (c) => c.longitud_minima,
+                  ejemplo:  (c) => c.ejemplo,
+                }).map((c) => (
+                  <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-blue-50/30 transition-colors">
+                    <td className="px-4 py-2 text-[11px] font-mono font-semibold text-blue-600">{c.tipo_documento_codigo}</td>
+                    <td className="px-4 py-2 text-[12px] text-gray-700">{c.tipo_documento_nombre}</td>
+                    <td className="px-4 py-2 text-[12px] font-mono text-gray-500">{c.prefijo ?? "—"}</td>
+                    <td className="px-4 py-2 text-[12px] text-gray-500">{c.numero_actual.toLocaleString("es-CO")}</td>
+                    <td className="px-4 py-2 text-[12px] text-gray-500">{c.numero_inicio.toLocaleString("es-CO")}</td>
+                    <td className="px-4 py-2 text-[12px] text-gray-500">{c.longitud_minima}</td>
+                    <td className="px-4 py-2">
                       <span className="text-[11px] font-mono px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-gray-600">
                         {c.ejemplo}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2">
                       <div className="flex items-center gap-1">
                         <button onClick={() => abrirEditar(c)} title="Configurar"
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
@@ -188,20 +215,22 @@ export default function ConsecutivosPage() {
                 ))}
               </tbody>
             </table>
+            </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {modalNuevo && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-[13px] font-semibold text-gray-800">Nuevo consecutivo contable</h2>
-              <button onClick={() => setModalNuevo(false)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title="Nuevo consecutivo contable"
+              onClose={() => setModalNuevo(false)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>}
+            />
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
               <div>
@@ -255,16 +284,13 @@ export default function ConsecutivosPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <h2 className="text-[13px] font-semibold text-gray-800">Configurar consecutivo</h2>
-                <p className="text-[11px] text-gray-400 mt-0.5">{drawer.tipo_documento_nombre}</p>
-              </div>
-              <button onClick={() => setDrawer(null)} className="text-gray-400 hover:text-gray-600">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-xl z-50 flex flex-col">
+            <DrawerHeader
+              title="Configurar consecutivo"
+              subtitle={drawer.tipo_documento_nombre}
+              onClose={() => setDrawer(null)}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>}
+            />
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 

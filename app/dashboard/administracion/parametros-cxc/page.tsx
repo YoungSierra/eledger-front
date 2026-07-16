@@ -16,7 +16,7 @@ interface CxcParametro {
   cuenta_iva_display: string | null;
 }
 
-const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
+const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 function CuentaSearch({ label, ayuda, valor, display, onChange }: {

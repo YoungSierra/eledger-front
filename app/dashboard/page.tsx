@@ -1,141 +1,184 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { usePageTitle } from "@/lib/menu-context";
+import { MenuContext, usePageTitle } from "@/lib/menu-context";
 
-interface OpcionMenu { nombre: string; ruta: string; implementada: boolean; }
-interface GrupoMenu  { modulo_codigo: string; modulo_nombre: string; opciones: OpcionMenu[]; }
+interface Operacion {
+  id: string; numero: string; cotizacion_id: string;
+  fecha_apertura: string;
+  estado: "ABIERTA" | "EN_CURSO" | "CERRADA" | "CANCELADA";
+  piezas: number | null; peso_kg: string | null;
+}
 
-// ── Datos fake ────────────────────────────────────────────────────────────────
+interface Cotizacion {
+  id: string; numero: string; cliente_nombre: string;
+  fecha: string; fecha_vigencia: string;
+  origen: string; destino: string;
+  tipo_operacion: "IMPORTACION" | "EXPORTACION";
+  estado: "BORRADOR" | "ENVIADA" | "APROBADA" | "RECHAZADA" | "VENCIDA";
+}
 
-const KPI = [
-  { label: "Operaciones activas", value: "6",  sub: "4 en curso · 2 abiertas",     color: "text-blue-600",   bg: "bg-blue-50   border-blue-200",   dot: "bg-blue-500"   },
-  { label: "Cotizaciones mes",    value: "11", sub: "3 pendientes de aprobación",  color: "text-violet-600", bg: "bg-violet-50 border-violet-200", dot: "bg-violet-500" },
-  { label: "HAWBs emitidos",      value: "18", sub: "↑ 20% vs mes anterior",       color: "text-amber-600",  bg: "bg-amber-50  border-amber-200",  dot: "bg-amber-500"  },
-  { label: "MAWBs del mes",       value: "7",  sub: "5 ya cerrados",               color: "text-green-600",  bg: "bg-green-50  border-green-200",  dot: "bg-green-500"  },
+const ESTADO_OP: Record<string, string> = {
+  ABIERTA:   "bg-blue-50 text-blue-700",
+  EN_CURSO:  "bg-amber-50 text-amber-700",
+  CERRADA:   "bg-gray-100 text-gray-500",
+  CANCELADA: "bg-red-50 text-red-600",
+};
+
+const ESTADO_COT: Record<string, string> = {
+  BORRADOR:  "bg-gray-100 text-gray-500",
+  ENVIADA:   "bg-blue-50 text-blue-700",
+  APROBADA:  "bg-green-50 text-green-700",
+  RECHAZADA: "bg-red-50 text-red-600",
+  VENCIDA:   "bg-amber-50 text-amber-600",
+};
+
+const ACCESOS = [
+  {
+    modulo: "operaciones", fragmento: "/operaciones/cotizaciones",
+    href: "/dashboard/operaciones/cotizaciones/nueva",
+    titulo: "Nueva cotización", sub: "Crear cotización de carga",
+    marco: "border-blue-100 hover:border-blue-300 hover:bg-blue-50",
+    chip: "bg-blue-100 group-hover:bg-blue-200", stroke: "#2563eb",
+    icon: (<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>),
+  },
+  {
+    modulo: "facturacion", fragmento: "/facturacion/facturas",
+    href: "/dashboard/facturacion/facturas",
+    titulo: "Facturas de venta", sub: "Ver facturas emitidas",
+    marco: "border-violet-100 hover:border-violet-300 hover:bg-violet-50",
+    chip: "bg-violet-100 group-hover:bg-violet-200", stroke: "#7c3aed",
+    icon: (<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>),
+  },
+  {
+    modulo: "compras", fragmento: "/compras/ordenes",
+    href: "/dashboard/compras/ordenes",
+    titulo: "Órdenes de compra", sub: "Ver órdenes activas",
+    marco: "border-green-100 hover:border-green-300 hover:bg-green-50",
+    chip: "bg-green-100 group-hover:bg-green-200", stroke: "#059669",
+    icon: (<><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></>),
+  },
+  {
+    modulo: "inventario", fragmento: "/inventario/movimientos",
+    href: "/dashboard/inventario/movimientos",
+    titulo: "Movimientos", sub: "Inventario · movimientos",
+    marco: "border-cyan-100 hover:border-cyan-300 hover:bg-cyan-50",
+    chip: "bg-cyan-100 group-hover:bg-cyan-200", stroke: "#0891b2",
+    icon: (<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>),
+  },
+  {
+    modulo: "contabilidad", fragmento: "/contabilidad/terceros",
+    href: "/dashboard/contabilidad/terceros",
+    titulo: "Terceros", sub: "Clientes y proveedores",
+    marco: "border-rose-100 hover:border-rose-300 hover:bg-rose-50",
+    chip: "bg-rose-100 group-hover:bg-rose-200", stroke: "#e11d48",
+    icon: (<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>),
+  },
+  {
+    modulo: "cxc", fragmento: "/cxc/recibos",
+    href: "/dashboard/cxc/recibos",
+    titulo: "Recibos de caja", sub: "Registrar un recaudo",
+    marco: "border-amber-100 hover:border-amber-300 hover:bg-amber-50",
+    chip: "bg-amber-100 group-hover:bg-amber-200", stroke: "#d97706",
+    icon: (<><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></>),
+  },
 ];
 
-const OPS_RECIENTES = [
-  { numero: "OP-2026001", cliente: "CENTAK ANDINA SAS",          ruta: "BOG → SAL", estado: "EN_CURSO",  fecha: "01 jun" },
-  { numero: "OP-2026002", cliente: "TECEP S.A.",                 ruta: "BOG → MIA", estado: "ABIERTA",   fecha: "02 jun" },
-  { numero: "OP-2026003", cliente: "INVERSIONES GARCIA LTDA",    ruta: "BOG → GUA", estado: "EN_CURSO",  fecha: "01 jun" },
-  { numero: "OP-2026004", cliente: "DISTRIBUIDORA ANDINA S.A.S", ruta: "BOG → PTY", estado: "CERRADA",   fecha: "28 may" },
-  { numero: "OP-2026005", cliente: "CENTAK ANDINA SAS",          ruta: "BOG → LIM", estado: "ABIERTA",   fecha: "03 jun" },
-  { numero: "OP-2026006", cliente: "CIMPA COLOMBIA SAS",         ruta: "BOG → BOG", estado: "EN_CURSO",  fecha: "03 jun" },
-  { numero: "OP-2026007", cliente: "GRUPO TEXTIL NORTE",         ruta: "BOG → MIA", estado: "ABIERTA",   fecha: "04 jun" },
-  { numero: "OP-2026008", cliente: "TECEP S.A.",                 ruta: "BOG → SAL", estado: "CERRADA",   fecha: "04 jun" },
-  { numero: "OP-2026009", cliente: "INVERSIONES GARCIA LTDA",    ruta: "BOG → PTY", estado: "EN_CURSO",  fecha: "05 jun" },
-  { numero: "OP-2026010", cliente: "CENTAK ANDINA SAS",          ruta: "BOG → GUA", estado: "ABIERTA",   fecha: "05 jun" },
-];
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-const COTS_RECIENTES = [
-  { numero: "COT-2026018", cliente: "CIMPA COLOMBIA SAS",        estado: "APROBADA",  valor: "USD 1.240", fecha: "04 jun" },
-  { numero: "COT-2026017", cliente: "TECEP S.A.",                estado: "ENVIADA",   valor: "USD 980",   fecha: "03 jun" },
-  { numero: "COT-2026016", cliente: "CENTAK ANDINA SAS",         estado: "BORRADOR",  valor: "USD 1.560", fecha: "02 jun" },
-  { numero: "COT-2026015", cliente: "GRUPO TEXTIL NORTE",        estado: "RECHAZADA", valor: "USD 720",   fecha: "01 jun" },
-  { numero: "COT-2026014", cliente: "DISTRIBUIDORA ANDINA S.A.S",estado: "APROBADA",  valor: "USD 2.100", fecha: "01 jun" },
-  { numero: "COT-2026013", cliente: "INVERSIONES GARCIA LTDA",   estado: "ENVIADA",   valor: "USD 850",   fecha: "31 may" },
-  { numero: "COT-2026012", cliente: "TECEP S.A.",                estado: "VENCIDA",   valor: "USD 430",   fecha: "30 may" },
-  { numero: "COT-2026011", cliente: "CENTAK ANDINA SAS",         estado: "APROBADA",  valor: "USD 3.200", fecha: "29 may" },
-  { numero: "COT-2026010", cliente: "CIMPA COLOMBIA SAS",        estado: "BORRADOR",  valor: "USD 670",   fecha: "28 may" },
-  { numero: "COT-2026009", cliente: "GRUPO TEXTIL NORTE",        estado: "RECHAZADA", valor: "USD 910",   fecha: "27 may" },
-];
+// La API entrega fechas como YYYY-MM-DD. Se parte el string en vez de usar
+// new Date(iso), que las interpreta como UTC y en Colombia (UTC-5) muestra el
+// día anterior.
+function fechaCorta(iso: string): string {
+  const [, m, d] = iso.split("T")[0].split("-").map(Number);
+  return `${String(d).padStart(2, "0")} ${MESES[m - 1]}`;
+}
 
-const OPS_SEMANA = [
-  { label: "S1", ops: 2, hawbs: 5 },
-  { label: "S2", ops: 3, hawbs: 8 },
-  { label: "S3", ops: 2, hawbs: 6 },
-  { label: "S4", ops: 4, hawbs: 11 },
-  { label: "S5", ops: 3, hawbs: 9 },
-  { label: "S6", ops: 6, hawbs: 18 },
-];
+function fechaLocal(iso: string): Date {
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
-const DESTINOS = [
-  { label: "El Salvador (SAL)", value: 7,  color: "#2563eb" },
-  { label: "Miami (MIA)",       value: 5,  color: "#7c3aed" },
-  { label: "Guatemala (GUA)",   value: 4,  color: "#d97706" },
-  { label: "Panamá (PTY)",      value: 3,  color: "#059669" },
-  { label: "Lima (LIM)",        value: 2,  color: "#dc2626" },
-];
+const PALETA = ["#2563eb", "#7c3aed", "#d97706", "#059669", "#dc2626"];
 
-const CONVERSION = [
-  { label: "Enviadas",   value: 11, color: "#2563eb", pct: 100 },
-  { label: "Aprobadas",  value: 7,  color: "#059669", pct: 64  },
-  { label: "Rechazadas", value: 2,  color: "#dc2626", pct: 18  },
-  { label: "Vencidas",   value: 1,  color: "#d97706", pct: 9   },
-];
+const COLOR_ESTADO_COT: Record<string, string> = {
+  ENVIADA: "#2563eb", APROBADA: "#059669", RECHAZADA: "#dc2626",
+  VENCIDA: "#d97706", BORRADOR: "#94a3b8",
+};
 
-const ALERTAS = [
-  { nivel: "warn", texto: "OP-2026002 sin eventos en 3 días",    accion: "Revisar" },
-  { nivel: "warn", texto: "3 cotizaciones próximas a vencer",     accion: "Ver"     },
-  { nivel: "info", texto: "TRM actual: $3.565 — Banco República", accion: null      },
-  { nivel: "ok",   texto: "OP-2026004 entregada exitosamente",     accion: null      },
-];
+const DIAS_ALERTA = 30;
 
-const ESTADO_OP:  Record<string, string> = { ABIERTA: "bg-blue-50 text-blue-700", EN_CURSO: "bg-amber-50 text-amber-700", CERRADA: "bg-gray-100 text-gray-500" };
-const ESTADO_COT: Record<string, string> = { BORRADOR: "bg-gray-100 text-gray-500", ENVIADA: "bg-blue-50 text-blue-700", APROBADA: "bg-green-50 text-green-700", RECHAZADA: "bg-red-50 text-red-600", VENCIDA: "bg-amber-50 text-amber-600" };
+interface FilaAntiguedad {
+  id: string; numero: string; ruta: string; dias: number;
+  estado: Operacion["estado"];
+}
 
-// ── Gráfica de barras SVG ─────────────────────────────────────────────────────
-
-function BarChart() {
-  const maxOps   = Math.max(...OPS_SEMANA.map((d) => d.ops));
-  const maxHawbs = Math.max(...OPS_SEMANA.map((d) => d.hawbs));
-  // viewBox fijo; preserveAspectRatio="none" estira para llenar el contenedor
-  const W = 200; const H = 100; const barW = 13; const gap = 3; const groupW = barW * 2 + gap;
-  const colW = groupW + 8;
-  const padB = 14;
+// Cuánto lleva abierta cada operación activa, la más vieja arriba. A este
+// volumen esto sí responde una pregunta diaria ("¿cuál se está quedando
+// quieta?"), al revés que una serie de tiempo, que con 1-4 operaciones por
+// semana solo dibuja ruido.
+function Antiguedad({ datos, big = false }: { datos: FilaAntiguedad[]; big?: boolean }) {
+  const max = Math.max(1, ...datos.map((d) => d.dias));
+  if (datos.length === 0) {
+    return <p className="text-[11px] text-gray-400">No hay operaciones activas.</p>;
+  }
   return (
-    <svg
-      viewBox={`0 0 ${OPS_SEMANA.length * colW + 4} ${H + padB}`}
-      className="w-full h-full"
-      style={{ display: "block" }}
-    >
-      {[0, 0.33, 0.66, 1].map((t) => (
-        <line key={t} x1={0} x2={OPS_SEMANA.length * colW + 4} y1={H - t * H} y2={H - t * H} stroke="#f1f5f9" strokeWidth="1"/>
-      ))}
-      {OPS_SEMANA.map((d, i) => {
-        const x  = 2 + i * colW;
-        const hO = (d.ops   / maxOps)   * H;
-        const hH = (d.hawbs / maxHawbs) * H;
+    <div className={big ? "space-y-3" : "space-y-2"}>
+      {datos.map((d) => {
+        const alerta = d.dias > DIAS_ALERTA;
         return (
-          <g key={d.label}>
-            <rect x={x}             y={H - hO} width={barW} height={hO} rx="2" fill="#2563eb" opacity="0.85"/>
-            <rect x={x + barW + gap} y={H - hH} width={barW} height={hH} rx="2" fill="#d97706" opacity="0.75"/>
-            <text x={x + barW} y={H + padB - 2} textAnchor="middle" fontSize="8" fill="#94a3b8">{d.label}</text>
-          </g>
+          <Link key={d.id} href={`/dashboard/operaciones/operaciones/${d.id}`}
+            className="block group">
+            <div className="flex justify-between items-center gap-2 mb-1">
+              <span className={`text-gray-600 truncate ${big ? "text-[14px]" : "text-[10px]"}`}>
+                <span className="font-bold text-gray-800 group-hover:text-blue-600">{d.numero}</span>
+                {d.ruta && <span> · {d.ruta}</span>}
+              </span>
+              <span className={`font-bold shrink-0 ${big ? "text-[14px]" : "text-[10px]"} ${alerta ? "text-amber-600" : "text-gray-600"}`}>
+                {d.dias}d
+              </span>
+            </div>
+            <div className={`bg-gray-100 rounded-full overflow-hidden ${big ? "h-3" : "h-1.5"}`}>
+              <div className="h-full rounded-full transition-all"
+                style={{ width: `${(d.dias / max) * 100}%`, background: alerta ? "#d97706" : "#2563eb" }}/>
+            </div>
+          </Link>
         );
       })}
-    </svg>
+    </div>
   );
 }
 
-// ── Dona SVG ──────────────────────────────────────────────────────────────────
-
-function DonutChart() {
-  const total = DESTINOS.reduce((s, d) => s + d.value, 0);
-  const R = 38; const cx = 48; const cy = 48; let angle = -90;
-  const slices = DESTINOS.map((d) => {
-    const pct = d.value / total; const start = angle; angle += pct * 360; const end = angle;
-    const s = (a: number) => ({ x: cx + R * Math.cos((a * Math.PI) / 180), y: cy + R * Math.sin((a * Math.PI) / 180) });
+function DonutChart({ datos, big = false }: { datos: { label: string; value: number; color: string }[]; big?: boolean }) {
+  const total = datos.reduce((s, d) => s + d.value, 0);
+  const R = 38, cx = 48, cy = 48;
+  let angle = -90;
+  const slices = datos.map((d) => {
+    const pct = total ? d.value / total : 0;
+    const start = angle; angle += pct * 360; const end = angle;
+    const p = (a: number) => ({ x: cx + R * Math.cos((a * Math.PI) / 180), y: cy + R * Math.sin((a * Math.PI) / 180) });
     const lg = end - start > 180 ? 1 : 0;
-    return { ...d, path: `M ${s(start).x} ${s(start).y} A ${R} ${R} 0 ${lg} 1 ${s(end).x} ${s(end).y} L ${cx} ${cy} Z` };
+    return { ...d, path: `M ${p(start).x} ${p(start).y} A ${R} ${R} 0 ${lg} 1 ${p(end).x} ${p(end).y} L ${cx} ${cy} Z` };
   });
   return (
-    <div className="flex items-center gap-3">
-      <svg viewBox="0 0 96 96" className="shrink-0" style={{ width: 68, height: 68 }}>
-        {slices.map((s) => <path key={s.label} d={s.path} fill={s.color} opacity="0.9"/>)}
+    <div className={`flex items-center ${big ? "gap-10" : "gap-3"}`}>
+      <svg viewBox="0 0 96 96" className="shrink-0" style={{ width: big ? 240 : 68, height: big ? 240 : 68 }}>
+        {total === 0
+          ? <circle cx={cx} cy={cy} r={R} fill="#f1f5f9"/>
+          : slices.map((s) => <path key={s.label} d={s.path} fill={s.color} opacity="0.9"/>)}
         <circle cx={cx} cy={cy} r={22} fill="white"/>
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="13" fontWeight="700" fill="#1e293b">{total}</text>
         <text x={cx} y={cy + 9} textAnchor="middle" fontSize="7" fill="#94a3b8">total</text>
       </svg>
-      <div className="space-y-1.5 min-w-0 flex-1">
-        {DESTINOS.map((d) => (
-          <div key={d.label} className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }}/>
-            <span className="text-[10px] text-gray-600 truncate flex-1">{d.label}</span>
-            <span className="text-[11px] font-bold text-gray-800">{d.value}</span>
+      <div className={`min-w-0 flex-1 ${big ? "space-y-3" : "space-y-1.5"}`}>
+        {datos.length === 0 && <p className="text-[10px] text-gray-400">Sin datos</p>}
+        {datos.map((d) => (
+          <div key={d.label} className={`flex items-center ${big ? "gap-3" : "gap-1.5"}`}>
+            <div className={`rounded-full shrink-0 ${big ? "w-3 h-3" : "w-2 h-2"}`} style={{ background: d.color }}/>
+            <span className={`text-gray-600 truncate flex-1 ${big ? "text-[15px]" : "text-[10px]"}`}>{d.label}</span>
+            <span className={`font-bold text-gray-800 ${big ? "text-[18px]" : "text-[11px]"}`}>{d.value}</span>
           </div>
         ))}
       </div>
@@ -143,256 +186,340 @@ function DonutChart() {
   );
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+function ConversionBars({ datos, aprobacion, big = false }: {
+  datos: { label: string; value: number; color: string; pct: number }[];
+  aprobacion: number | null; big?: boolean;
+}) {
+  return (
+    <div className={big ? "space-y-4" : "space-y-2"}>
+      {datos.map((c) => (
+        <div key={c.label}>
+          <div className="flex justify-between items-center mb-1">
+            <span className={`text-gray-600 ${big ? "text-[15px]" : "text-[11px]"}`}>{c.label}</span>
+            <span className={`font-bold text-gray-800 ${big ? "text-[16px]" : "text-[11px]"}`}>{c.value}</span>
+          </div>
+          <div className={`bg-gray-100 rounded-full overflow-hidden ${big ? "h-3" : "h-1.5"}`}>
+            <div className="h-full rounded-full" style={{ width: `${c.pct}%`, background: c.color }}/>
+          </div>
+        </div>
+      ))}
+      <p className={`text-gray-500 pt-0.5 ${big ? "text-[13px]" : "text-[10px]"}`}>
+        Aprobación: <span className="font-bold text-green-600">{aprobacion === null ? "—" : `${aprobacion}%`}</span>
+      </p>
+    </div>
+  );
+}
+
+const ExpandIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
+    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+  </svg>
+);
+
+const ZOOM_TITULO: Record<string, string> = {
+  antiguedad: "Antigüedad de operaciones activas",
+  dona: "Destinos por operación",
+  conversion: "Conversión de cotizaciones",
+};
 
 export default function DashboardPage() {
   const title = usePageTitle();
-  const [accesos, setAccesos] = useState({ cotizaciones: true, operaciones: true, facturas: true, ordenes: true, movimientos: true, terceros: true });
+  const grupos = useContext(MenuContext);
+  const [operaciones, setOperaciones] = useState<Operacion[]>([]);
+  const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
+  const [empresa, setEmpresa] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [zoom, setZoom] = useState<string | null>(null);
 
   useEffect(() => {
-    // TODO: restaurar tras preview
-    // apiFetch<GrupoMenu[]>("/menu").then((grupos) => {
-    //   const tiene = (modulo: string, rutaFragment: string) =>
-    //     grupos.find((g) => g.modulo_codigo === modulo)
-    //       ?.opciones.some((o) => o.ruta.includes(rutaFragment) && o.implementada) ?? false;
-    //   setAccesos({
-    //     cotizaciones: tiene("operaciones",  "/cotizaciones"),
-    //     operaciones:  tiene("operaciones",  "/operaciones/operaciones"),
-    //     facturas:     tiene("facturacion",  "/facturacion/facturas"),
-    //     ordenes:      tiene("compras",      "/compras/ordenes"),
-    //     movimientos:  tiene("inventario",   "/inventario/movimientos"),
-    //     terceros:     tiene("contabilidad", "/contabilidad/terceros"),
-    //   });
-    // }).catch(() => {});
+    Promise.all([
+      apiFetch<Operacion[]>("/operaciones/operaciones"),
+      apiFetch<Cotizacion[]>("/operaciones/cotizaciones"),
+    ])
+      .then(([ops, cots]) => { setOperaciones(ops); setCotizaciones(cots); })
+      .catch(() => {})   // apiFetch redirige a /login si la sesión expiró
+      .finally(() => setLoading(false));
+
+    // El core es agnóstico de empresa: el nombre sale de la BD, no del código.
+    apiFetch<{ razon_social: string } | null>("/empresa/publica")
+      .then((e) => setEmpresa(e?.razon_social ?? ""))
+      .catch(() => {});
   }, []);
 
-  const hayAccesos = Object.values(accesos).some(Boolean);
+  const tiene = (modulo: string, fragmento: string) =>
+    grupos.find((g) => g.modulo_codigo === modulo)
+      ?.opciones.some((o) => o.ruta.includes(fragmento) && o.implementada) ?? false;
+  const accesos = ACCESOS.filter((a) => tiene(a.modulo, a.fragmento));
+
+  // Cotización de cada operación: da cliente y ruta, que la operación no lleva.
+  const porCotizacion = new Map(cotizaciones.map((c) => [c.id, c]));
+
+  const activas = operaciones
+    .filter((o) => o.estado === "ABIERTA" || o.estado === "EN_CURSO")
+    .sort((a, b) => b.fecha_apertura.localeCompare(a.fecha_apertura));
+  const enCurso = activas.filter((o) => o.estado === "EN_CURSO").length;
+  const abiertas = activas.filter((o) => o.estado === "ABIERTA").length;
+
+  const recientes = [...cotizaciones]
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    .slice(0, 20);
+  const porAprobar = cotizaciones.filter((c) => c.estado === "ENVIADA").length;
+
+  // Mes en curso, en hora local (no UTC).
+  const hoy = new Date();
+  const esteMes = (iso: string) => {
+    const d = fechaLocal(iso);
+    return d.getFullYear() === hoy.getFullYear() && d.getMonth() === hoy.getMonth();
+  };
+  const cotsMes = cotizaciones.filter((c) => esteMes(c.fecha));
+  const opsMes = operaciones.filter((o) => esteMes(o.fecha_apertura));
+  const kgMes = opsMes.reduce((s, o) => s + Number(o.peso_kg ?? 0), 0);
+  const piezasMes = opsMes.reduce((s, o) => s + (o.piezas ?? 0), 0);
+
+  // Tasa de aprobación sobre las cotizaciones ya decididas: las que siguen en
+  // BORRADOR o ENVIADA no son ni éxito ni fracaso todavía.
+  const decididas = cotizaciones.filter((c) =>
+    c.estado === "APROBADA" || c.estado === "RECHAZADA" || c.estado === "VENCIDA");
+  const aprobadas = cotizaciones.filter((c) => c.estado === "APROBADA").length;
+  const aprobacion = decididas.length
+    ? Math.round((aprobadas / decididas.length) * 100) : null;
+
+  const kpis = [
+    {
+      label: "Operaciones activas", value: String(activas.length), hex: "#2563eb",
+      sub: `${enCurso} en curso · ${abiertas} abiertas`,
+      icon: (<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>),
+    },
+    {
+      label: "Cotizaciones del mes", value: String(cotsMes.length), hex: "#7c3aed",
+      sub: `${porAprobar} pendiente${porAprobar === 1 ? "" : "s"} de aprobación`,
+      icon: (<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>),
+    },
+    {
+      label: "Kg movilizados (mes)", value: Math.round(kgMes).toLocaleString("es-CO"), hex: "#d97706",
+      sub: `${opsMes.length} operación${opsMes.length === 1 ? "" : "es"} · ${piezasMes} pieza${piezasMes === 1 ? "" : "s"}`,
+      icon: (<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></>),
+    },
+    {
+      label: "Tasa de aprobación", value: aprobacion === null ? "—" : `${aprobacion}%`, hex: "#059669",
+      sub: `${aprobadas} de ${decididas.length} decididas`,
+      icon: (<><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></>),
+    },
+  ];
+
+  // Series de las gráficas — todas salen de los mismos dos fetches.
+  const medianoche = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const antiguedad: FilaAntiguedad[] = activas
+    .map((o) => {
+      const c = porCotizacion.get(o.cotizacion_id);
+      return {
+        id: o.id,
+        numero: o.numero,
+        ruta: c ? `${c.origen} → ${c.destino}` : "",
+        dias: Math.round((medianoche.getTime() - fechaLocal(o.fecha_apertura).getTime()) / 86400000),
+        estado: o.estado,
+      };
+    })
+    .sort((a, b) => b.dias - a.dias);
+  const estancadas = antiguedad.filter((d) => d.dias > DIAS_ALERTA).length;
+
+  const conteoDestino = new Map<string, number>();
+  operaciones.forEach((o) => {
+    const c = porCotizacion.get(o.cotizacion_id);
+    if (!c) return;
+    conteoDestino.set(c.destino, (conteoDestino.get(c.destino) ?? 0) + 1);
+  });
+  const destinos = [...conteoDestino.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([label, value], i) => ({ label, value, color: PALETA[i % PALETA.length] }));
+
+  const maxEstado = Math.max(1, ...["ENVIADA", "APROBADA", "RECHAZADA", "VENCIDA"]
+    .map((e) => cotizaciones.filter((c) => c.estado === e).length));
+  const conversion = ["ENVIADA", "APROBADA", "RECHAZADA", "VENCIDA"].map((e) => {
+    const value = cotizaciones.filter((c) => c.estado === e).length;
+    return {
+      label: e.charAt(0) + e.slice(1).toLowerCase(),
+      value, color: COLOR_ESTADO_COT[e],
+      pct: Math.round((value / maxEstado) * 100),
+    };
+  });
 
   return (
-    <div className="h-full flex flex-col gap-3">
+    <div className="flex flex-col gap-3 lg:h-full">
 
-      {/* Bienvenida */}
       <div className="shrink-0">
-        <h1 className="text-[16px] font-bold text-gray-800">{title}</h1>
-        <p className="text-[12px] text-gray-400 mt-0.5">Resumen operativo — Universal Cargo Colombia S.A.S</p>
+        <h1 className="text-[22px] font-bold text-gray-800 tracking-tight">{title || "Resumen operativo"}</h1>
+        <p className="text-[12.5px] text-gray-500 mt-0.5">
+          Estado de la operación{empresa && ` · ${empresa}`}
+        </p>
       </div>
 
-      {/* Layout: izquierda + derecha */}
-      <div className="flex-1 grid grid-cols-2 gap-3 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:flex-1 lg:min-h-0">
 
-        {/* ── Columna izquierda ──────────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 min-h-0">
-
-          {/* KPIs 2×2 — altura fija */}
+        {/* ── Izquierda: KPIs + accesos ───────────────────────────────────── */}
+        <div className="flex flex-col gap-3 lg:min-h-0">
           <div className="grid grid-cols-2 gap-3 shrink-0">
-            {KPI.map(({ label, value, sub, color, bg, dot }) => (
-              <div key={label} className={`border rounded-xl p-3 ${bg}`}>
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <div className={`w-2 h-2 rounded-full ${dot}`}/>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+            {kpis.map(({ label, value, sub, hex, icon }) => (
+              <div key={label} className="bg-white border border-gray-200 rounded-xl shadow p-4"
+                style={{ borderTop: `3px solid ${hex}` }}>
+                <div className="flex items-start justify-between">
+                  <p className="text-[30px] font-bold leading-none" style={{ color: hex }}>
+                    {loading ? "—" : value}
+                  </p>
+                  <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: `${hex}1a`, color: hex }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{icon}</svg>
+                  </span>
                 </div>
-                <p className={`text-[28px] font-bold leading-none ${color}`}>{value}</p>
-                <p className="text-[10px] text-gray-400 mt-1">{sub}</p>
+                <p className="text-[11.5px] font-semibold text-gray-700 mt-2.5">{label}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">{loading ? "" : sub}</p>
               </div>
             ))}
           </div>
 
-          {/* Barras + Dona */}
-          <div className="grid grid-cols-2 gap-3 shrink-0">
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+          {/* Antigüedad — crece para consumir el alto sobrante de la columna */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow flex flex-col overflow-hidden lg:flex-1 lg:min-h-0">
+            <div className="px-3 pt-3 pb-2 shrink-0 flex items-center justify-between cursor-pointer"
+              onClick={() => setZoom("antiguedad")}>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">Antigüedad de operaciones activas</p>
+              <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                {estancadas > 0 && (
+                  <span className="text-amber-600 font-semibold">{estancadas} &gt; {DIAS_ALERTA} días</span>
+                )}
+                <ExpandIcon />
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 px-3 pb-3">
+              {loading
+                ? <p className="text-[11px] text-gray-400">Cargando…</p>
+                : <Antiguedad datos={antiguedad} />}
+            </div>
+          </div>
+
+          {/* Destinos + Conversión */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+            <div onClick={() => setZoom("dona")}
+              className="bg-white border border-gray-200 rounded-xl p-3 shadow cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Actividad semanal</p>
-                <div className="flex gap-2 text-[10px] text-gray-400">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-blue-600"/>Ops</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-amber-500"/>HAWBs</span>
-                </div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">Destinos</p>
+                <ExpandIcon />
               </div>
-              <div className="h-36">
-                <BarChart />
-              </div>
+              <DonutChart datos={destinos} />
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Destinos del mes</p>
-              <DonutChart />
-            </div>
-          </div>
-
-          {/* Conversión + Alertas — altura natural, sin stretch */}
-          <div className="grid grid-cols-2 gap-3 shrink-0">
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Conversión cotizaciones</p>
-              <div className="space-y-2">
-                {CONVERSION.map((c) => (
-                  <div key={c.label}>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[11px] text-gray-600">{c.label}</span>
-                      <span className="text-[11px] font-bold text-gray-800">{c.value}</span>
-                    </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${c.pct}%`, background: c.color }}/>
-                    </div>
-                  </div>
-                ))}
-                <p className="text-[10px] text-gray-400 pt-0.5">Aprobación: <span className="font-bold text-green-600">64%</span></p>
+            <div onClick={() => setZoom("conversion")}
+              className="bg-white border border-gray-200 rounded-xl p-3 shadow cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">Conversión cotizaciones</p>
+                <ExpandIcon />
               </div>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Alertas y avisos</p>
-              <div className="space-y-2">
-                {ALERTAS.map((a, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${
-                      a.nivel === "warn" ? "bg-amber-500" : a.nivel === "ok" ? "bg-green-500" : "bg-blue-400"
-                    }`}/>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-gray-600 leading-snug">{a.texto}</p>
-                      {a.accion && <button className="text-[10px] text-blue-600 font-semibold hover:underline">{a.accion} →</button>}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ConversionBars datos={conversion} aprobacion={aprobacion} />
             </div>
           </div>
 
-          {/* Accesos rápidos */}
-          {hayAccesos && (
-            <div className="shrink-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Accesos rápidos</p>
-              <div className="grid grid-cols-2 gap-3">
-                {accesos.cotizaciones && (
-                  <Link href="/dashboard/operaciones/cotizaciones/nueva"
-                    className="group flex items-center gap-3 bg-white border border-blue-100 hover:border-blue-300 hover:bg-blue-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Nueva cotización</p>
-                      <p className="text-[10px] text-gray-400">Crear cotización de carga</p>
-                    </div>
-                  </Link>
-                )}
-                {accesos.operaciones && (
-                  <Link href="/dashboard/operaciones/operaciones"
-                    className="group flex items-center gap-3 bg-white border border-amber-100 hover:border-amber-300 hover:bg-amber-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 group-hover:bg-amber-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21 4 19 2c-2-2-4-2-5.5-.5L10 5 1.8 6.2a1 1 0 0 0-.6 1.6L4 11l-1 4 4-1 2.8 2.8a1 1 0 0 0 1.6-.6z"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Operaciones</p>
-                      <p className="text-[10px] text-gray-400">Ver operaciones activas</p>
-                    </div>
-                  </Link>
-                )}
-                {accesos.facturas && (
-                  <Link href="/dashboard/facturacion/facturas"
-                    className="group flex items-center gap-3 bg-white border border-violet-100 hover:border-violet-300 hover:bg-violet-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Facturas de venta</p>
-                      <p className="text-[10px] text-gray-400">Ver facturas emitidas</p>
-                    </div>
-                  </Link>
-                )}
-                {accesos.ordenes && (
-                  <Link href="/dashboard/compras/ordenes"
-                    className="group flex items-center gap-3 bg-white border border-green-100 hover:border-green-300 hover:bg-green-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-green-100 group-hover:bg-green-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Órdenes de compra</p>
-                      <p className="text-[10px] text-gray-400">Ver órdenes activas</p>
-                    </div>
-                  </Link>
-                )}
-                {accesos.movimientos && (
-                  <Link href="/dashboard/inventario/movimientos"
-                    className="group flex items-center gap-3 bg-white border border-cyan-100 hover:border-cyan-300 hover:bg-cyan-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-cyan-100 group-hover:bg-cyan-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0891b2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Movimientos</p>
-                      <p className="text-[10px] text-gray-400">Inventario · movimientos</p>
-                    </div>
-                  </Link>
-                )}
-                {accesos.terceros && (
-                  <Link href="/dashboard/contabilidad/terceros"
-                    className="group flex items-center gap-3 bg-white border border-rose-100 hover:border-rose-300 hover:bg-rose-50 rounded-xl px-4 py-3 transition-all shadow-sm">
-                    <div className="w-8 h-8 rounded-lg bg-rose-100 group-hover:bg-rose-200 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Terceros</p>
-                      <p className="text-[10px] text-gray-400">Clientes y proveedores</p>
-                    </div>
-                  </Link>
-                )}
-              </div>
+          {accesos.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+              {accesos.map((a) => (
+                <Link key={a.href} href={a.href}
+                  className={`group flex items-center gap-3 bg-white border relative rounded-xl px-4 py-3 transition-all shadow ${a.marco}`}>
+                  <span className="absolute top-2 right-2 text-amber-400" title="Acceso rápido">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  </span>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${a.chip}`}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={a.stroke} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">{a.icon}</svg>
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-semibold text-gray-800">{a.titulo}</p>
+                    <p className="text-[10px] text-gray-500">{a.sub}</p>
+                  </div>
+                </Link>
+              ))}
             </div>
           )}
         </div>
 
-        {/* ── Columna derecha: ops + cotizaciones ────────────────────────── */}
-        <div className="grid grid-rows-2 gap-3 min-h-0">
+        {/* ── Derecha: operaciones + cotizaciones ─────────────────────────── */}
+        <div className="flex flex-col gap-3 lg:grid lg:grid-rows-2 lg:min-h-0">
 
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col overflow-hidden min-h-0">
-            <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Operaciones activas</p>
+          <div className="bg-white border border-gray-200 rounded-xl shadow flex flex-col overflow-hidden min-h-0 max-h-[65vh] lg:max-h-none">
+            <div className="px-4 py-3 border-b border-gray-200 shrink-0 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">Operaciones activas</p>
+              <Link href="/dashboard/operaciones/operaciones" className="text-[10px] text-blue-600 font-semibold hover:underline">Ver todas →</Link>
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
-              {OPS_RECIENTES.map((op) => (
-                <div key={op.numero} className="px-4 py-2.5 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-gray-800 truncate">
-                      {op.numero} <span className="font-normal text-gray-500">· {op.cliente}</span>
-                    </span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${ESTADO_OP[op.estado]}`}>{op.estado}</span>
-                  </div>
-                  <p className="text-[10px] text-gray-400">{op.ruta} · {op.fecha}</p>
-                </div>
-              ))}
+              {loading ? (
+                <p className="px-4 py-3 text-[11px] text-gray-400">Cargando…</p>
+              ) : activas.length === 0 ? (
+                <p className="px-4 py-3 text-[11px] text-gray-400">No hay operaciones abiertas ni en curso.</p>
+              ) : activas.map((op) => {
+                const cot = porCotizacion.get(op.cotizacion_id);
+                return (
+                  <Link key={op.id} href={`/dashboard/operaciones/operaciones/${op.id}`}
+                    className="block px-4 py-2.5 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-gray-800 truncate">
+                        {op.numero}
+                        {cot && <span className="font-normal text-gray-500"> · {cot.cliente_nombre}</span>}
+                      </span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${ESTADO_OP[op.estado]}`}>{op.estado}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-500">
+                      {cot ? `${cot.origen} → ${cot.destino} · ` : ""}{fechaCorta(op.fecha_apertura)}
+                    </p>
+                  </Link>
+                );
+              })}
             </div>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col overflow-hidden min-h-0">
-            <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Cotizaciones recientes</p>
+          <div className="bg-white border border-gray-200 rounded-xl shadow flex flex-col overflow-hidden min-h-0 max-h-[65vh] lg:max-h-none">
+            <div className="px-4 py-3 border-b border-gray-200 shrink-0 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">Cotizaciones recientes</p>
+              <Link href="/dashboard/operaciones/cotizaciones" className="text-[10px] text-blue-600 font-semibold hover:underline">Ver todas →</Link>
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
-              {COTS_RECIENTES.map((c) => (
-                <div key={c.numero} className="px-4 py-2.5 hover:bg-gray-50 transition-colors">
+              {loading ? (
+                <p className="px-4 py-3 text-[11px] text-gray-400">Cargando…</p>
+              ) : recientes.length === 0 ? (
+                <p className="px-4 py-3 text-[11px] text-gray-400">No hay cotizaciones registradas.</p>
+              ) : recientes.map((c) => (
+                <Link key={c.id} href={`/dashboard/operaciones/cotizaciones/${c.id}`}
+                  className="block px-4 py-2.5 hover:bg-gray-50 transition-colors">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-gray-800 truncate">
-                      {c.numero} <span className="font-normal text-gray-500">· {c.cliente}</span>
+                      {c.numero} <span className="font-normal text-gray-500">· {c.cliente_nombre}</span>
                     </span>
                     <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${ESTADO_COT[c.estado]}`}>{c.estado}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-gray-400">{c.fecha}</span>
-                    <span className="text-[10px] font-bold text-gray-600">{c.valor}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-gray-500 truncate">{c.origen} → {c.destino}</span>
+                    <span className="text-[10px] text-gray-500 shrink-0">{fechaCorta(c.fecha)}</span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Zoom de gráficas */}
+      {zoom && (
+        <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-6" onClick={() => setZoom(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-[16px] font-bold text-gray-800">{ZOOM_TITULO[zoom]}</h3>
+              <button onClick={() => setZoom(null)} title="Cerrar" className="text-gray-400 hover:text-gray-600">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            {zoom === "antiguedad" && (
+              <div className="max-h-[70vh] overflow-y-auto"><Antiguedad datos={antiguedad} big /></div>
+            )}
+            {zoom === "dona" && <DonutChart datos={destinos} big />}
+            {zoom === "conversion" && <ConversionBars datos={conversion} aprobacion={aprobacion} big />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

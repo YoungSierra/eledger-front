@@ -1,16 +1,18 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import DrawerHeader from "@/components/DrawerHeader";
 
-interface Rol { id: string; nombre: string; es_cliente: boolean; ver_solo_propios: boolean; }
+interface Rol { id: string; nombre: string; es_cliente: boolean; ver_solo_propios: boolean; es_superadmin?: boolean; }
 interface Tercero { id: string; nit: string; razon_social: string; }
 interface Usuario {
   id: string;
   email: string;
   nombre: string;
   apellido: string;
+  telefono: string | null;
   rol_id: string;
   tercero_id: string | null;
   es_asesor: boolean;
@@ -22,7 +24,15 @@ interface Usuario {
 const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-300";
 
-const EMPTY_FORM = { nombre: "", apellido: "", email: "", password: "", rol_id: "", tercero_id: "", es_asesor: false, ver_solo_propios: false };
+const EMPTY_FORM = { nombre: "", apellido: "", email: "", telefono: "", password: "", rol_id: "", tercero_id: "", es_asesor: false, ver_solo_propios: false };
+
+// Color de avatar determinístico según el nombre (paleta de marca ampliada).
+const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#059669", "#d97706", "#0891b2", "#dc2626", "#4f46e5", "#0d9488", "#c026d3"];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
 
 export default function UsuariosPage() {
   const title = usePageTitle();
@@ -38,7 +48,7 @@ export default function UsuariosPage() {
   const [miRolId, setMiRolId]       = useState<string | null>(null);
   const [busqueda, setBusqueda]     = useState("");
   const [pagina, setPagina]         = useState(1);
-  const porPagina                   = 15;
+  const porPagina                   = 12; // filas completas en 4 / 3 / 2 columnas
   // Búsqueda de tercero para rol cliente
   const [terceroQ, setTerceroQ]     = useState("");
   const [terceroOpts, setTerceroOpts] = useState<Tercero[]>([]);
@@ -86,7 +96,7 @@ export default function UsuariosPage() {
 
   async function abrirEditar(u: Usuario) {
     setSeleccionado(u);
-    setForm({ nombre: u.nombre, apellido: u.apellido, email: u.email, password: "", rol_id: u.rol_id, tercero_id: u.tercero_id ?? "", es_asesor: u.es_asesor, ver_solo_propios: u.ver_solo_propios });
+    setForm({ nombre: u.nombre, apellido: u.apellido, email: u.email, telefono: u.telefono ?? "", password: "", rol_id: u.rol_id, tercero_id: u.tercero_id ?? "", es_asesor: u.es_asesor, ver_solo_propios: u.ver_solo_propios });
     setTerceroQ("");
     setError("");
     if (u.tercero_id) {
@@ -139,7 +149,7 @@ export default function UsuariosPage() {
     if (esRolCliente && !form.tercero_id) { setError("Debes asociar un cliente para este rol"); return; }
     setSaving(true); setError("");
     try {
-      const body = { ...form, tercero_id: form.tercero_id || null };
+      const body = { ...form, telefono: form.telefono || null, tercero_id: form.tercero_id || null };
       await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(body) });
       cerrar(); cargar();
     } catch (err: unknown) {
@@ -152,7 +162,7 @@ export default function UsuariosPage() {
     if (esRolCliente && !form.tercero_id) { setError("Debes asociar un cliente para este rol"); return; }
     setSaving(true); setError("");
     const body: Record<string, unknown> = {
-      nombre: form.nombre, apellido: form.apellido, rol_id: form.rol_id,
+      nombre: form.nombre, apellido: form.apellido, telefono: form.telefono || null, rol_id: form.rol_id,
       tercero_id: form.tercero_id || null,
       es_asesor: form.es_asesor,
       ver_solo_propios: form.ver_solo_propios,
@@ -214,110 +224,105 @@ export default function UsuariosPage() {
         </label>
       </div>
 
-      {/* Tabla */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-        <div className="flex-1 overflow-auto">
-        <table className="w-full text-[12px]">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-8">#</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Usuario</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Correo</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Rol</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Asesor</th>
-              <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Estado</th>
-              <th className="px-4 py-3 w-24"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {loading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-[12px]">Cargando...</td></tr>
-            ) : filas.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-[12px]">{busqueda ? "Sin resultados para la búsqueda" : "Sin usuarios registrados"}</td></tr>
-            ) : filas.map((u, i) => {
-              const iniciales = (u.nombre[0] ?? "") + (u.apellido[0] ?? "");
-              return (
-                <tr key={u.id} className={`hover:bg-blue-50/30 transition-colors ${!u.activo ? "opacity-50" : ""}`}>
-                  <td className="px-4 py-3 text-gray-300 text-[11px]">{i + 1}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                        {iniciales.toUpperCase()}
+      {/* Grid de tarjetas */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="py-16 text-center text-gray-400 text-[12px]">Cargando...</div>
+          ) : filas.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-[12px]">{busqueda ? "Sin resultados para la búsqueda" : "Sin usuarios registrados"}</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-2">
+              {filas.map((u) => {
+                const iniciales = ((u.nombre[0] ?? "") + (u.apellido[0] ?? "")).toUpperCase();
+                const esSuper = u.rol_id === superadminRolId;
+                const puedeGestionar = !esSuper || yoSoySuperadmin;
+                return (
+                  <div key={u.id}
+                    className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 flex flex-col transition-all hover:shadow-md ${!u.activo ? "opacity-60" : ""}`}>
+
+                    {/* Avatar + identidad */}
+                    <div className="flex flex-col items-center text-center">
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-[18px] font-bold shrink-0"
+                          style={{ background: avatarColor(u.id) }}>
+                          {iniciales}
+                        </div>
+                        <span className={`absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full border-2 border-white ${u.activo ? "bg-green-500" : "bg-gray-400"}`}
+                          title={u.activo ? "Activo" : "Inactivo"} />
                       </div>
-                      <span className="text-gray-800 font-medium">{u.nombre} {u.apellido}</span>
+                      <p className="mt-3 text-[14px] font-semibold text-gray-800 leading-tight">{u.nombre} {u.apellido}</p>
+                      <p className="text-[11.5px] text-gray-500 mt-0.5 capitalize">{nombreRol(u.rol_id)}</p>
+                      {/* Slot de altura fija para el badge — alinea todas las tarjetas */}
+                      <div className="h-6 mt-1 flex items-center justify-center">
+                        {u.es_asesor && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">
+                            Asesor{u.ver_solo_propios && <span className="text-[9px] text-purple-400">· solo propios</span>}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">
-                      {nombreRol(u.rol_id)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {u.es_asesor ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700">
-                        Asesor{u.ver_solo_propios && <span className="text-[9px] text-purple-400">· solo propios</span>}
-                      </span>
-                    ) : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                      u.activo ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${u.activo ? "bg-green-500" : "bg-gray-400"}`} />
-                      {u.activo ? "Activo" : "Inactivo"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {(() => {
-                      const esSuper = u.rol_id === superadminRolId;
-                      const puedeGestionar = !esSuper || yoSoySuperadmin;
-                      return (
-                    <div className="flex items-center justify-end gap-2">
-                      {puedeGestionar ? (
-                        <button onClick={() => abrirEditar(u)} title="Editar"
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+
+                    <div className="border-t border-gray-100 my-4" />
+
+                    {/* Contacto */}
+                    <div className="space-y-2.5 text-[12px]">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <span className="text-gray-600 truncate">{u.email}</span>
+                      </div>
+                      {u.telefono && (
+                        <div className="flex items-center gap-2.5">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
                           </svg>
-                        </button>
-                      ) : (
-                        <span className="p-1.5 text-gray-200 cursor-not-allowed" title="Solo el superadmin puede editar este usuario">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                          </svg>
-                        </span>
+                          <span className="text-gray-600">{u.telefono}</span>
+                        </div>
                       )}
-                      {puedeGestionar && (u.activo ? (
-                        <button onClick={() => abrirInactivar(u)} title="Inactivar"
-                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10"/>
-                            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                          </svg>
-                        </button>
-                      ) : (
-                        <button onClick={() => activar(u)} title="Activar"
-                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition-colors">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                            <polyline points="22 4 12 14.01 9 11.01"/>
-                          </svg>
-                        </button>
-                      ))}
                     </div>
-                      );
-                    })()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+
+                    {/* Acciones — híbrido: principal en texto + secundaria en icono */}
+                    <div className="mt-auto pt-4 flex items-center gap-2">
+                      {puedeGestionar ? (
+                        <>
+                          <button onClick={() => abrirEditar(u)}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            Editar
+                          </button>
+                          {u.activo ? (
+                            <button onClick={() => abrirInactivar(u)} title="Inactivar"
+                              className="p-2 border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 rounded-lg transition-colors">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                              </svg>
+                            </button>
+                          ) : (
+                            <button onClick={() => activar(u)} title="Activar"
+                              className="p-2 border border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-200 hover:bg-green-50 rounded-lg transition-colors">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                              </svg>
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <p className="flex-1 text-center text-[10px] text-gray-300 py-1.5">Solo el superadmin puede gestionar este usuario</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0">
+
+        {/* Paginación */}
+        <div className="flex items-center justify-between pt-3 mt-1 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
             {usuariosFiltrados.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, usuariosFiltrados.length)}`} de {usuariosFiltrados.length}
           </span>
@@ -335,20 +340,13 @@ export default function UsuariosPage() {
       {(modal === "crear" || modal === "editar") && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[420px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {modal === "crear" ? "Nuevo usuario" : "Editar usuario"}
-                </h2>
-                {seleccionado && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">{seleccionado.nombre} {seleccionado.apellido}</p>
-                )}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={modal === "crear" ? "Nuevo usuario" : "Editar usuario"}
+              subtitle={seleccionado ? `${seleccionado.nombre} ${seleccionado.apellido}` : undefined}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+            />
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -360,6 +358,10 @@ export default function UsuariosPage() {
                   <label className={labelCls}>Apellido *</label>
                   <input name="apellido" value={form.apellido} onChange={handleChange} required className={inputCls} />
                 </div>
+              </div>
+              <div>
+                <label className={labelCls}>Teléfono</label>
+                <input name="telefono" value={form.telefono} onChange={handleChange} className={inputCls} placeholder="Opcional" />
               </div>
               {modal === "crear" && (
                 <div>

@@ -108,13 +108,14 @@ function calcTotal(tipo: string, valorU: number, base: number, minimo: number | 
 
 // ── Componente búsqueda con autocomplete ─────────────────────────────────────
 
-function BusquedaInput({ label, value, display, onSelect, fetchFn, placeholder }: {
+function BusquedaInput({ label, value, display, onSelect, fetchFn, placeholder, disabled }: {
   label: string;
   value: string;
   display: string;
   onSelect: (id: string, nombre: string) => void;
   fetchFn: (q: string) => Promise<{ id: string; label: string }[]>;
   placeholder: string;
+  disabled?: boolean;
 }) {
   const [q, setQ]             = useState(display);
   const [opciones, setOpciones] = useState<{ id: string; label: string }[]>([]);
@@ -145,6 +146,7 @@ function BusquedaInput({ label, value, display, onSelect, fetchFn, placeholder }
       <label className={labelCls}>{label}</label>
       <input value={q} onChange={(e) => onChange(e.target.value)}
         onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        disabled={disabled}
         placeholder={placeholder} className={inputCls} />
       {abierto && (
         <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-40 overflow-y-auto">
@@ -765,10 +767,11 @@ export default function CotizacionForm({ id }: { id: string }) {
 
           {/* Encabezado */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Encabezado</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Encabezado</p>
 
             <BusquedaInput label="Cliente *" value={clienteId} display={clienteNombre}
               fetchFn={buscarClientes} placeholder="Buscar por NIT o nombre..."
+              disabled={!editable && !isNueva}
               onSelect={(id, label) => {
                 setClienteId(id);
                 setClienteNombre(label.split(" — ")[1] ?? label);
@@ -896,7 +899,7 @@ export default function CotizacionForm({ id }: { id: string }) {
 
           {/* Margen */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Margen</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-3">Margen</p>
             <div className="space-y-2">
               {[
                 { label: "Total venta", val: `COP ${fmt(totalVentaCOP, 0)}`, color: "text-blue-700" },

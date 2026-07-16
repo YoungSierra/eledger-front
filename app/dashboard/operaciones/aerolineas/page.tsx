@@ -1,8 +1,10 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 interface Aerolinea {
   id: string; codigo_iata: string; nombre: string;
@@ -33,8 +35,10 @@ export default function AerolineasPage() {
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
   const [soloActivas, setSoloActivas] = useState(true);
+  const [busqueda, setBusqueda]       = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 25;
+  const { orden, alternar } = useOrden<"iata" | "nombre" | "modalidad" | "estado">("nombre", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivas]);
 
@@ -44,9 +48,21 @@ export default function AerolineasPage() {
     setPagina(1);
   }
 
-  const totalPaginas = Math.max(1, Math.ceil(lista.length / porPagina));
+  const q = busqueda.trim().toLowerCase();
+  const listaFiltrada = q
+    ? lista.filter((a) => `${a.codigo_iata} ${a.nombre}`.toLowerCase().includes(q))
+    : lista;
+  // Se ordena la lista completa antes de paginar.
+  const ordenada = ordenarFilas(listaFiltrada, orden, {
+    iata:      (a) => a.codigo_iata,
+    nombre:    (a) => a.nombre,
+    modalidad: (a) => a.modalidad,
+    estado:    (a) => (a.activo ? 1 : 0),
+  });
+
+  const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const filas = lista.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
+  const filas = ordenada.slice((paginaActual - 1) * porPagina, paginaActual * porPagina);
 
   function cerrar() { setDrawer(null); setSel(null); setForm(FORM_VACIO); setError(""); }
 
@@ -84,47 +100,59 @@ export default function AerolineasPage() {
           <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
           <p className="text-[12px] text-gray-400 mt-0.5">Catálogo de aerolíneas y navieras</p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none">
-            <input type="checkbox" checked={soloActivas} onChange={(e) => setSoloActivas(e.target.checked)} className="w-3.5 h-3.5 accent-blue-600" />
-            Solo activas
-          </label>
-          <button onClick={abrirCrear}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Nueva
-          </button>
-        </div>
+        <button onClick={abrirCrear}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nueva aerolínea
+        </button>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      {/* Filtros */}
+      <div className="flex gap-2 mb-4 shrink-0 max-w-4xl">
+        <div className="relative flex-1">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
+            placeholder="Buscar por código IATA o nombre..."
+            className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none whitespace-nowrap">
+          <input type="checkbox" checked={soloActivas} onChange={(e) => setSoloActivas(e.target.checked)} className="w-3.5 h-3.5 accent-blue-600" />
+          Solo activas
+        </label>
+      </div>
+
+      <div className="flex-1 min-h-0 max-w-4xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-white z-10">
+          <table className="w-full min-w-[680px]">
+            <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 w-20">IATA</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Nombre</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Modalidad</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Estado</th>
+                <Th campo="iata"      orden={orden} alternar={alternar} className="w-20">IATA</Th>
+                <Th campo="nombre"    orden={orden} alternar={alternar}>Nombre</Th>
+                <Th campo="modalidad" orden={orden} alternar={alternar}>Modalidad</Th>
+                <Th campo="estado"    orden={orden} alternar={alternar}>Estado</Th>
                 <th className="px-4 py-2.5 w-20"></th>
               </tr>
             </thead>
-            <tbody>
-              {lista.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-gray-400">Sin aerolíneas registradas</td></tr>
+            <tbody className="divide-y divide-gray-50">
+              {listaFiltrada.length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-gray-400">{q ? "Sin resultados para la búsqueda" : "Sin aerolíneas registradas"}</td></tr>
               ) : filas.map((a) => (
-                <tr key={a.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${!a.activo ? "opacity-50" : ""}`}>
-                  <td className="px-4 py-2.5 font-mono text-[12px] font-bold text-gray-700">{a.codigo_iata}</td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-800">{a.nombre}</td>
-                  <td className="px-4 py-2.5">
+                <tr key={a.id} className={`hover:bg-blue-50/30 transition-colors ${!a.activo ? "opacity-50" : ""}`}>
+                  <td className="px-4 py-3 text-[12px]">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono font-semibold text-blue-600">{a.codigo_iata}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-[12px] text-gray-800">{a.nombre}</td>
+                  <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${MODAL_COLOR[a.modalidad]}`}>{a.modalidad}</span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${a.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
                       {a.activo ? "Activa" : "Inactiva"}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => abrirEditar(a)} title="Editar"
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
@@ -150,7 +178,7 @@ export default function AerolineasPage() {
         </div>
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
-            {lista.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, lista.length)}`} de {lista.length}
+            {listaFiltrada.length === 0 ? "0" : `${(paginaActual - 1) * porPagina + 1}–${Math.min(paginaActual * porPagina, listaFiltrada.length)}`} de {listaFiltrada.length}
           </span>
           <div className="flex items-center gap-1">
             <button onClick={() => setPagina(1)} disabled={paginaActual === 1} className="px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-100 rounded disabled:opacity-30">«</button>
@@ -166,18 +194,13 @@ export default function AerolineasPage() {
       {drawer && (
         <>
           <div className="fixed inset-0 bg-black/20 z-40" />
-          <div className="fixed top-0 right-0 h-full w-[380px] bg-white shadow-2xl z-50 flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <div>
-                <h2 className="text-[14px] font-semibold text-gray-800">
-                  {drawer === "crear" ? "Nueva aerolínea" : "Editar aerolínea"}
-                </h2>
-                {sel && <p className="text-[11px] text-gray-400 mt-0.5">{sel.codigo_iata} — {sel.nombre}</p>}
-              </div>
-              <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col">
+            <DrawerHeader
+              title={drawer === "crear" ? "Nueva aerolínea" : "Editar aerolínea"}
+              subtitle={sel ? `${sel.codigo_iata} — ${sel.nombre}` : undefined}
+              onClose={cerrar}
+              icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 4.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>}
+            />
             <form onSubmit={guardar} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className={lbl}>Código IATA *</label>

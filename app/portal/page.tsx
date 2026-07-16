@@ -88,17 +88,17 @@ export default function PortalPage() {
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-[20px] font-bold text-blue-600">Mis operaciones</h1>
           <p className="text-[12px] text-gray-400 mt-0.5">
             {ops.length} operación{ops.length !== 1 ? "es" : ""} registrada{ops.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg overflow-x-auto">
           {(["TODAS", "EN_CURSO", "ABIERTA", "CERRADA"] as Filtro[]).map((f) => (
             <button key={f} onClick={() => setFiltro(f)}
-              className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-all ${
+              className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-all shrink-0 whitespace-nowrap ${
                 filtro === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}>
               {FILTRO_LABELS[f]}
