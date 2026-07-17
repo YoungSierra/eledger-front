@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -11,7 +12,7 @@ interface TipoDoc  { id: string; tipo_documento_id: string; tipo_documento_codig
 interface Moneda   { id: string; codigo: string; nombre: string; es_funcional: boolean; }
 interface Cuenta   { id: string; codigo: string; nombre: string; requiere_tercero: boolean; requiere_cc: boolean; }
 interface Tercero  { id: string; nit: string; razon_social: string; }
-interface CC       { id: string; codigo: string; nombre: string; }
+interface CC       { id: string; codigo: string; nombre: string; padre_id: string | null; }
 
 interface LineaResponse {
   id: string; orden: number;
@@ -233,7 +234,7 @@ export default function AsientosPage() {
       const func = data.find((m) => m.es_funcional);
       if (func) setMonedaFuncId(func.id);
     }).catch(() => {});
-    apiFetch<CC[]>("/centros-costo").then(setCcs).catch(() => {});
+    apiFetch<CC[]>("/centros-costo?plano=true").then(setCcs).catch(() => {});
   }, []);
 
   // ── Listar ─────────────────────────────────────────────────────────────────
@@ -753,10 +754,8 @@ export default function AsientosPage() {
                           <td className="px-1 py-1.5"><TerceroSearch value={l.tercero_id} display={l.tercero_display}
                             onChange={(id, display) => updLinea(l._key, { tercero_id: id, tercero_display: display })} /></td>
                           <td className="px-1 py-1.5">
-                            <select value={l.cc_id} onChange={(e) => updLinea(l._key, { cc_id: e.target.value })} className={inpSm}>
-                              <option value="">—</option>
-                              {ccs.map((c) => <option key={c.id} value={c.id}>{c.codigo} {c.nombre}</option>)}
-                            </select>
+                            <CentroCostoTreeSelect centros={ccs} value={l.cc_id}
+                              onChange={(id) => updLinea(l._key, { cc_id: id })} />
                           </td>
                           <td className="px-1 py-1.5">
                             <input value={l.descripcion} onChange={(e) => updLinea(l._key, { descripcion: e.target.value })}

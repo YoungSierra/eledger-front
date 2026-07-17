@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ interface Producto {
   cuenta_ingreso_id: string | null; cuenta_ingreso_display: string | null;
 }
 interface UnidadMedida { id: string; codigo: string; nombre: string; }
-interface CentroCosto { id: string; codigo: string; nombre: string; }
+interface CentroCosto { id: string; codigo: string; nombre: string; padre_id: string | null; }
 
 interface RetencionForm {
   _key: string;
@@ -701,10 +702,9 @@ function Modal({
                         <td className="px-2 pt-0.5 pb-2">
                           {soloLectura
                             ? <span className="text-[10px] text-gray-400">{centrosCosto.find(c => c.id === l.centro_costo_id)?.codigo ?? "—"}</span>
-                            : <select value={l.centro_costo_id} onChange={e => updateLinea(idx, { centro_costo_id: e.target.value })} className={inpSm}>
-                                <option value="">Sin C. Costo</option>
-                                {centrosCosto.map(c => <option key={c.id} value={c.id}>{c.codigo} — {c.nombre}</option>)}
-                              </select>
+                            : <CentroCostoTreeSelect centros={centrosCosto} value={l.centro_costo_id}
+                                onChange={(id) => updateLinea(idx, { centro_costo_id: id })}
+                                placeholder="Sin C. Costo" />
                           }
                           {!soloLectura && !l.producto_id && l.descripcion.trim() && (
                             <div className="mt-1">
@@ -928,7 +928,7 @@ export default function FacturasPage() {
     apiFetch<Moneda[]>("/maestros/monedas").then(setMonedas).catch(() => {});
     apiFetch<CondicionPago[]>("/maestros/condiciones-pago?solo_activas=true").then(setCondiciones).catch(() => {});
     apiFetch<UnidadMedida[]>("/inventario/unidades-medida?solo_activos=true").then(setUnidades).catch(() => {});
-    apiFetch<CentroCosto[]>("/centros-costo?solo_activos=true").then(setCentrosCosto).catch(() => {});
+    apiFetch<CentroCosto[]>("/centros-costo?plano=true").then(setCentrosCosto).catch(() => {});
     apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {});
     apiFetch<RetCatalogo[]>("/maestros/retenciones?solo_activas=true").then(d => setRetCatalogo(d.filter(c => c.aplica_venta))).catch(() => {});
   }, []);

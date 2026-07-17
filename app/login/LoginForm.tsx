@@ -32,6 +32,7 @@ export default function LoginForm() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
   const [empresa, setEmpresa]   = useState<EmpresaPublica | null>(null);
@@ -43,12 +44,31 @@ export default function LoginForm() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const guardado = localStorage.getItem("login_email");
+    if (guardado) {
+      setEmail(guardado);
+      setRemember(true);
+      const pass = localStorage.getItem("login_pass");
+      if (pass) {
+        try { setPassword(atob(pass)); } catch { /* dato corrupto */ }
+      }
+    }
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
       const data = await login(email, password);
+      if (remember) {
+        localStorage.setItem("login_email", email);
+        localStorage.setItem("login_pass", btoa(password));
+      } else {
+        localStorage.removeItem("login_email");
+        localStorage.removeItem("login_pass");
+      }
       router.push(data.es_cliente ? "/portal" : "/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
@@ -178,6 +198,16 @@ export default function LoginForm() {
                 </button>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+              />
+              <span className="text-[12px] text-gray-500">Recordar mis datos</span>
+            </label>
 
             {error && (
               <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">

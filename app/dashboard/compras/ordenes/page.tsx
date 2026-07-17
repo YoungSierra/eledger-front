@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ interface Moneda     { id: string; codigo: string; nombre: string; es_funcional:
 interface Producto   { id: string; codigo: string; nombre: string; um_base_id: string; um_base_codigo: string; maneja_inventario: boolean; }
 interface Um         { id: string; codigo: string; nombre: string; }
 interface TarifaIva   { id: string; nombre: string; tipo: string; porcentaje: string; }
-interface CentroCosto { id: string; codigo: string; nombre: string; }
+interface CentroCosto { id: string; codigo: string; nombre: string; padre_id: string | null; }
 
 interface LineaForm {
   _key: string;
@@ -270,7 +271,7 @@ export default function OrdenesCompraPage() {
     }).catch(() => {});
     apiFetch("/inventario/unidades-medida").then((d: any) => setUnidades(d.items ?? d)).catch(() => {});
     apiFetch("/maestros/tarifas-iva?solo_activas=true").then((d: any) => setTarifasIva(d.items ?? d)).catch(() => {});
-    apiFetch("/centros-costo?solo_activos=true").then((d: any) => setCentrosCosto(d.items ?? d)).catch(() => {});
+    apiFetch("/centros-costo?plano=true").then((d: any) => setCentrosCosto(d.items ?? d)).catch(() => {});
     apiFetch<{ permisos: string[] }>("/auth/me").then((u) => {
       setPuedeAutorizar(u.permisos.includes("compras:autorizar"));
       setPuedeEliminar(u.permisos.includes("compras:eliminar"));
@@ -698,12 +699,9 @@ export default function OrdenesCompraPage() {
                             </td>
                             {/* C. Costo (spans UM + Precio + Desc%) */}
                             <td colSpan={3} className="px-2 pt-0.5 pb-2">
-                              <select value={l.centro_costo_id}
-                                onChange={(e) => setLinea(l._key, { centro_costo_id: e.target.value, centro_costo_display: centrosCosto.find(c => c.id === e.target.value)?.codigo ?? "" })}
-                                className={inpSm + " w-full"}>
-                                <option value="">Sin centro de costo</option>
-                                {centrosCosto.map((c) => <option key={c.id} value={c.id}>{c.codigo} — {c.nombre}</option>)}
-                              </select>
+                              <CentroCostoTreeSelect centros={centrosCosto} value={l.centro_costo_id}
+                                onChange={(id) => setLinea(l._key, { centro_costo_id: id, centro_costo_display: centrosCosto.find(c => c.id === id)?.codigo ?? "" })}
+                                placeholder="Sin centro de costo" />
                             </td>
                             {/* Subtotal */}
                             <td className="px-2 pt-0.5 pb-2 text-right font-mono text-gray-600">

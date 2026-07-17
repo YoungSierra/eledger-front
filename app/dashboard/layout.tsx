@@ -238,8 +238,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ${mobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
         style={{ background: "#1d4ed8", width: sidebarOpen ? "250px" : "56px", height: "100vh", overflow: "hidden" }}>
 
-        {/* ── Header usuario ───────────────────────────────────────── */}
-        <div className="shrink-0" style={{ background: "#1e40af", padding: sidebarOpen ? "14px 12px" : "14px 0" }}>
+        {/* ── Header usuario (fijo; sombra para que el scroll pase limpio por debajo) ── */}
+        <div className="shrink-0 relative z-10 shadow-[0_4px_10px_rgba(0,0,0,0.22)]" style={{ background: "#1e40af", padding: sidebarOpen ? "14px 12px" : "14px 0" }}>
           {sidebarOpen ? (
             <button onClick={abrirPerfil}
               title="Mi perfil — editar datos y cambiar contraseña"
@@ -266,10 +266,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
         </div>
 
-        {/* ── Inicio ───────────────────────────────────────────────── */}
-        {/* Misma anatomía que un módulo (contenedor, cuadro del icono y
-            tipografía) para que alinee con ellos; sin chevron, no despliega. */}
-        <div className="shrink-0 px-2.5 pt-3 pb-1">
+        {/* ── Inicio + Módulos (todo dentro del área con scroll para que
+            nada quede oculto bajo un botón fijo) ───────────────────── */}
+        <nav className="nav-scroll flex-1 min-h-0 px-2.5 pt-3 pb-4 overflow-y-auto space-y-1.5">
+          {/* Inicio: misma anatomía que un módulo; sin chevron, no despliega. */}
           <Link
             href="/dashboard"
             title={!sidebarOpen ? "Inicio" : undefined}
@@ -292,10 +292,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="flex-1 text-left text-[11.5px] font-semibold uppercase tracking-wide text-white/90">Inicio</span>
             )}
           </Link>
-        </div>
 
-        {/* ── Módulos ───────────────────────────────────────────────── */}
-        <nav className="nav-scroll flex-1 px-2.5 pb-4 overflow-y-auto mt-1 space-y-1.5">
           {visibleGroups.map((group) => {
             const isOpen    = collapsed[group.modulo_codigo] === true;
             const hasActive = group.opciones.some((op) => pathname === op.ruta);

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ interface CondicionPago {
 }
 
 interface CentroCosto {
-  id: string; codigo: string; nombre: string;
+  id: string; codigo: string; nombre: string; padre_id: string | null;
 }
 
 interface Concepto {
@@ -297,7 +298,7 @@ export default function FacturasProveedorPage() {
       .catch(() => {});
     apiFetch<CondicionPago[]>("/maestros/condiciones-pago?solo_activas=true")
       .then(setCondicionesPago).catch(() => {});
-    apiFetch<CentroCosto[]>("/centros-costo?solo_activos=true")
+    apiFetch<CentroCosto[]>("/centros-costo?plano=true")
       .then(setCentrosCosto).catch(() => {});
   }, []);
 
@@ -923,14 +924,9 @@ export default function FacturasProveedorPage() {
                                 → Centro de costo (opcional)
                               </td>
                               <td className="px-1 py-1" colSpan={4}>
-                                <select value={l.centro_costo_id}
-                                  onChange={(e) => updLinea(l._key, { centro_costo_id: e.target.value })}
-                                  className={inpSm}>
-                                  <option value="">Sin centro de costo</option>
-                                  {centrosCosto.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.codigo} — {c.nombre}</option>
-                                  ))}
-                                </select>
+                                <CentroCostoTreeSelect centros={centrosCosto} value={l.centro_costo_id}
+                                  onChange={(id) => updLinea(l._key, { centro_costo_id: id })}
+                                  placeholder="Sin centro de costo" />
                               </td>
                               <td />
                             </tr>
