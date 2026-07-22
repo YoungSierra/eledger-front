@@ -6,15 +6,18 @@ import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
+interface ClienteInfo { id: string; nombre: string; nit: string | null; }
+
 interface Operacion {
-  id: string; numero: string; cotizacion_id: string;
+  id: string; numero: string;
   fecha_apertura: string;
   estado: "ABIERTA" | "EN_CURSO" | "CERRADA" | "CANCELADA";
   piezas: number | null; peso_kg: number | null;
+  clientes: ClienteInfo[];
 }
 
 interface CotizacionInfo {
-  id: string; numero: string; cliente_nombre: string;
+  id: string; numero: string; cliente_nombre: string; operacion_id: string | null;
   origen: string; destino: string; tipo_operacion: string;
 }
 
@@ -46,7 +49,7 @@ export default function OperacionesPage() {
   const title = usePageTitle();
   const router = useRouter();
   const [operaciones, setOperaciones] = useState<Operacion[]>([]);
-  const [cotizaciones, setCotizaciones] = useState<Record<string, CotizacionInfo>>({});
+  const [cotsPorOp, setCotsPorOp] = useState<Record<string, CotizacionInfo[]>>({});
   const [estado, setEstado]       = useState("");
   const [busqueda, setBusqueda]   = useState("");
   const [fechaDesde, setFechaDesde] = useState(() => rangoPorDefecto().desde);
@@ -93,9 +96,12 @@ export default function OperacionesPage() {
         apiFetch<CotizacionInfo[]>("/operaciones/cotizaciones"),
       ]);
       setOperaciones(ops);
-      const mapa: Record<string, CotizacionInfo> = {};
-      cotsList.forEach((c) => { mapa[c.id] = c; });
-      setCotizaciones(mapa);
+      const mapa: Record<string, CotizacionInfo[]> = {};
+      cotsList.forEach((c) => {
+        if (!c.operacion_id) return;
+        (mapa[c.operacion_id] ??= []).push(c);
+      });
+      setCotsPorOp(mapa);
     } catch {
       // apiFetch redirige a /login si la sesión expiró
     } finally { setLoading(false); }
@@ -105,9 +111,9 @@ export default function OperacionesPage() {
   // cruzado — el mismo que se pinta en la fila.
   const ordenada = ordenarFilas(operaciones, orden, {
     numero:   (o) => o.numero,
-    cliente:  (o) => cotizaciones[o.cotizacion_id]?.cliente_nombre,
+    cliente:  (o) => o.clientes?.[0]?.nombre,
     ruta:     (o) => {
-      const c = cotizaciones[o.cotizacion_id];
+      const c = cotsPorOp[o.id]?.[0];
       return c ? `${c.origen} ${c.destino}` : null;
     },
     apertura: (o) => o.fecha_apertura,
@@ -206,7 +212,8 @@ export default function OperacionesPage() {
                   </td>
                 </tr>
               ) : filas.map((op) => {
-                const cot = cotizaciones[op.cotizacion_id];
+                const cotsOp = cotsPorOp[op.id] ?? [];
+                const cot = cotsOp[0];
                 return (
                   <tr key={op.id}
                     onClick={() => router.push(`/dashboard/operaciones/operaciones/${op.id}`)}
@@ -220,10 +227,18 @@ export default function OperacionesPage() {
                           </span>
                         )}
                       </div>
-                      {cot && <div className="text-[10px] text-gray-400 mt-0.5">{cot.numero}</div>}
+                      {cotsOp.length > 0 && (
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          {cotsOp.length === 1 ? cotsOp[0].numero : `${cotsOp.length} cotizaciones`}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">
-                      {cot?.cliente_nombre ?? <span className="text-gray-300">—</span>}
+                      {op.clientes && op.clientes.length > 0 ? (
+                        op.clientes.length === 1 ? op.clientes[0].nombre : (
+                          <span>{op.clientes[0].nombre} <span className="text-[10px] text-gray-400 font-normal">+{op.clientes.length - 1}</span></span>
+                        )
+                      ) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {cot ? (

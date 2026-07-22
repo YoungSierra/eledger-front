@@ -196,6 +196,18 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [motivoManif, setMotivoManif]     = useState("");
   const [menuManifId, setMenuManifId]     = useState<string | null>(null);
 
+  // Facturar cotización
+  interface FactLinea { linea_id: string; seccion: string; descripcion: string; moneda: string; total_venta: string; facturado: string; pendiente: string; }
+  const [factCotId, setFactCotId]     = useState<string | null>(null);
+  const [factCotNum, setFactCotNum]   = useState("");
+  const [factLineas, setFactLineas]   = useState<FactLinea[]>([]);
+  const [factSel, setFactSel]         = useState<Record<string, { incluir: boolean; monto: string }>>({});
+  const [factMoneda, setFactMoneda]   = useState<"COP" | "USD">("COP");
+  const [factFecha, setFactFecha]     = useState("");
+  const [factVenc, setFactVenc]       = useState("");
+  const [factSaving, setFactSaving]   = useState(false);
+  const [factError, setFactError]     = useState("");
+
   // Modales (solo Bitácora, Documentos y Manifiesto — HAWB y MAWB tienen página propia)
   const [manifiestoModal, setManifiestoModal] = useState(false);
   const [eventoModal, setEventoModal] = useState(false);
@@ -277,6 +289,40 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
       await cargarCarpeta();
     } catch (e) { setError(e instanceof Error ? e.message : "Error"); }
     finally { setSaving(false); }
+  }
+
+  async function abrirFacturar(cotId: string, cotNum: string) {
+    setFactError(""); setFactCotId(cotId); setFactCotNum(cotNum);
+    const hoy = new Date().toISOString().slice(0, 10);
+    const venc = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    setFactFecha(hoy); setFactVenc(venc); setFactMoneda("COP");
+    try {
+      const data = await apiFetch<{ lineas: FactLinea[] }>(`/operaciones/cotizaciones/${cotId}/facturacion`);
+      const pendientes = data.lineas.filter((l) => parseFloat(l.pendiente) > 0);
+      setFactLineas(pendientes);
+      const sel: Record<string, { incluir: boolean; monto: string }> = {};
+      pendientes.forEach((l) => { sel[l.linea_id] = { incluir: true, monto: l.pendiente }; });
+      setFactSel(sel);
+    } catch (e) { setFactError(e instanceof Error ? e.message : "Error"); setFactLineas([]); }
+  }
+
+  async function generarFactura() {
+    if (!factCotId) return;
+    const lineas = factLineas
+      .filter((l) => factSel[l.linea_id]?.incluir && parseFloat(factSel[l.linea_id]?.monto || "0") > 0)
+      .map((l) => ({ cotizacion_linea_id: l.linea_id, monto: parseFloat(factSel[l.linea_id].monto) }));
+    if (lineas.length === 0) { setFactError("Selecciona al menos una línea con monto"); return; }
+    setFactSaving(true); setFactError("");
+    try {
+      const fac = await apiFetch<{ id: string }>(`/facturacion/facturas/desde-cotizacion/${factCotId}`, {
+        method: "POST",
+        body: JSON.stringify({ moneda: factMoneda, fecha: factFecha, fecha_vencimiento: factVenc, lineas }),
+      });
+      setFactCotId(null);
+      window.open(`/dashboard/facturacion/facturas?factura=${fac.id}`, "_blank");
+      await cargarCarpeta();
+    } catch (e) { setFactError(e instanceof Error ? e.message : "Error al facturar"); }
+    finally { setFactSaving(false); }
   }
 
   async function abrirManifiestoModal() {
@@ -497,6 +543,76 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
       {error && <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-600">{error}</div>}
 
+      {factCotId && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 max-h-[90vh] flex flex-col">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Facturar cotización {factCotNum}</h2>
+            <p className="text-[11px] text-gray-400 mb-3">Selecciona las líneas y el monto a facturar (en la moneda de cada línea). Se genera una factura de venta en borrador.</p>
+            <div className="flex flex-wrap items-end gap-3 mb-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Moneda factura</label>
+                <select value={factMoneda} onChange={(e) => setFactMoneda(e.target.value as "COP" | "USD")}
+                  className="px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px]">
+                  <option value="COP">COP</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Fecha</label>
+                <input type="date" value={factFecha} onChange={(e) => setFactFecha(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px]" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Vencimiento</label>
+                <input type="date" value={factVenc} onChange={(e) => setFactVenc(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px]" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg">
+              {factLineas.length === 0 ? (
+                <p className="text-[12px] text-gray-400 text-center py-6">No hay líneas pendientes por facturar.</p>
+              ) : (
+                <table className="w-full text-[11px]">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr className="text-left text-[9px] uppercase text-gray-500">
+                      <th className="px-2 py-1.5 w-8"></th>
+                      <th className="px-2 py-1.5">Concepto</th>
+                      <th className="px-2 py-1.5 text-right">Pendiente</th>
+                      <th className="px-2 py-1.5 text-right w-32">Monto a facturar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {factLineas.map((l) => (
+                      <tr key={l.linea_id} className="border-t border-gray-50">
+                        <td className="px-2 py-1.5">
+                          <input type="checkbox" checked={factSel[l.linea_id]?.incluir ?? false}
+                            onChange={(e) => setFactSel((p) => ({ ...p, [l.linea_id]: { ...p[l.linea_id], incluir: e.target.checked } }))}
+                            className="accent-blue-600" />
+                        </td>
+                        <td className="px-2 py-1.5 text-gray-700">{l.descripcion}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-gray-500">{l.moneda} {parseFloat(l.pendiente).toLocaleString("es-CO", { minimumFractionDigits: 2 })}</td>
+                        <td className="px-2 py-1.5 text-right">
+                          <input type="number" step="0.01" min="0" value={factSel[l.linea_id]?.monto ?? ""}
+                            onChange={(e) => setFactSel((p) => ({ ...p, [l.linea_id]: { ...p[l.linea_id], monto: e.target.value } }))}
+                            className="w-28 px-2 py-1 border border-gray-200 rounded text-[11px] text-right" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {factError && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mt-3">{factError}</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setFactCotId(null)} disabled={factSaving}
+                className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button onClick={generarFactura} disabled={factSaving || factLineas.length === 0}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {factSaving ? "Generando..." : "Generar factura"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {emitirManifId && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
@@ -647,10 +763,16 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 {cot.notas && (
                   <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 whitespace-pre-line">{cot.notas}</p>
                 )}
-                <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cot.id}`, "_blank")}
-                  className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
-                  Ver cotización completa ↗
-                </button>
+                <div className="flex items-center gap-3 pt-1">
+                  <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cot.id}`, "_blank")}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
+                    Ver cotización ↗
+                  </button>
+                  <button onClick={() => abrirFacturar(cot.id, cot.numero)}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold border border-emerald-200 bg-emerald-50 rounded-md px-2 py-0.5">
+                    Facturar
+                  </button>
+                </div>
               </div>
             ))}
           </div>

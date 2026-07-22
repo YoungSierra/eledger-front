@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
@@ -10,7 +10,11 @@ interface Concepto {
   id: string; nombre: string; seccion: string;
   tipo_calculo: "POR_KG" | "POR_EMBARQUE" | "PORCENTAJE";
   moneda: "USD" | "COP"; activo: boolean;
+  cuenta_ingreso_id: string | null; cuenta_ingreso_nombre: string | null;
+  tarifa_iva_id: string | null; tarifa_iva_nombre: string | null;
 }
+interface Cuenta { id: string; codigo: string; nombre: string; }
+interface TarifaIva { id: string; nombre: string; porcentaje: string; }
 
 type TipoCalculo = "POR_KG" | "POR_EMBARQUE" | "PORCENTAJE";
 type Moneda = "USD" | "COP";
@@ -39,8 +43,52 @@ const TIPO_LABEL: Record<TipoCalculo, string> = {
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
-interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; }
-const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD" };
+interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; tarifa_iva_id: string; }
+const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", tarifa_iva_id: "" };
+
+function CuentaSearch({ label, cuentaDisplay, onChange }: {
+  label: string; cuentaDisplay: string; onChange: (id: string) => void;
+}) {
+  const [q, setQ]           = useState(cuentaDisplay);
+  const [opciones, setOpc]  = useState<Cuenta[]>([]);
+  const [abierto, setAbierto] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => { setQ(cuentaDisplay); }, [cuentaDisplay]);
+
+  function buscar(val: string) {
+    setQ(val);
+    onChange("");
+    if (!val.trim()) { setOpc([]); setAbierto(false); return; }
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      const data = await apiFetch<Cuenta[]>(
+        `/cuentas?busqueda=${encodeURIComponent(val)}&solo_activas=true&solo_movimiento=true`
+      ).catch(() => []);
+      setOpc(data.slice(0, 10)); setAbierto(data.length > 0);
+    }, 300);
+  }
+
+  return (
+    <div className="relative">
+      <label className={lbl}>{label}</label>
+      <input value={q} onChange={(e) => buscar(e.target.value)}
+        onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Buscar por código o nombre..." className={inp} />
+      {abierto && (
+        <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+          {opciones.map((c) => (
+            <button key={c.id} type="button"
+              onMouseDown={() => { setQ(`${c.codigo} — ${c.nombre}`); setAbierto(false); onChange(c.id); }}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+              <span className="font-mono text-[11px] text-blue-600 mr-2">{c.codigo}</span>{c.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ConceptosPage() {
   const title = usePageTitle();
@@ -53,11 +101,14 @@ export default function ConceptosPage() {
   const [form, setForm]               = useState<Form>(FORM_VACIO);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
+  const [tarifasIva, setTarifasIva]   = useState<TarifaIva[]>([]);
+  const [cuentaNombre, setCuentaNombre] = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 20;
   const { orden, alternar } = useOrden<"seccion" | "concepto" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
+  useEffect(() => { apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {}); }, []);
 
   async function cargar() {
     const data = await apiFetch<Concepto[]>(`/operaciones/conceptos?solo_activos=${soloActivos}`);
@@ -65,23 +116,26 @@ export default function ConceptosPage() {
     setPagina(1);
   }
 
-  function cerrar() { setDrawer(null); setSel(null); setForm(FORM_VACIO); setError(""); }
+  function cerrar() { setDrawer(null); setSel(null); setForm(FORM_VACIO); setError(""); setCuentaNombre(""); }
 
-  function abrirCrear() { setForm(FORM_VACIO); setError(""); setDrawer("crear"); }
+  function abrirCrear() { setForm(FORM_VACIO); setError(""); setCuentaNombre(""); setDrawer("crear"); }
 
   function abrirEditar(c: Concepto) {
     setSel(c);
-    setForm({ nombre: c.nombre, seccion: c.seccion, tipo_calculo: c.tipo_calculo, moneda: c.moneda });
+    setForm({ nombre: c.nombre, seccion: c.seccion, tipo_calculo: c.tipo_calculo, moneda: c.moneda,
+      cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", tarifa_iva_id: c.tarifa_iva_id ?? "" });
+    setCuentaNombre(c.cuenta_ingreso_nombre ?? "");
     setError(""); setDrawer("editar");
   }
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError("");
     try {
+      const payload = { ...form, cuenta_ingreso_id: form.cuenta_ingreso_id || null, tarifa_iva_id: form.tarifa_iva_id || null };
       if (drawer === "crear") {
-        await apiFetch("/operaciones/conceptos", { method: "POST", body: JSON.stringify(form) });
+        await apiFetch("/operaciones/conceptos", { method: "POST", body: JSON.stringify(payload) });
       } else {
-        await apiFetch(`/operaciones/conceptos/${sel!.id}`, { method: "PUT", body: JSON.stringify(form) });
+        await apiFetch(`/operaciones/conceptos/${sel!.id}`, { method: "PUT", body: JSON.stringify(payload) });
       }
       await cargar(); cerrar();
     } catch (err: unknown) {
@@ -273,6 +327,20 @@ export default function ConceptosPage() {
                   </select>
                 </div>
               </div>
+
+              <div className="pt-2 border-t border-gray-100 space-y-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-blue-500">Parámetros de facturación</p>
+                <CuentaSearch label="Cuenta de ingreso" cuentaDisplay={cuentaNombre}
+                  onChange={(id) => setForm(p => ({ ...p, cuenta_ingreso_id: id }))} />
+                <div>
+                  <label className={lbl}>Tarifa de IVA</label>
+                  <select value={form.tarifa_iva_id} onChange={(e) => setForm(p => ({ ...p, tarifa_iva_id: e.target.value }))} className={inp}>
+                    <option value="">Sin IVA</option>
+                    {tarifasIva.map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
+                  </select>
+                </div>
+              </div>
+
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">{error}</p>}
             </form>
             <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 shrink-0">
