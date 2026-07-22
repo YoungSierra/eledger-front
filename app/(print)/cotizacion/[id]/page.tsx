@@ -49,8 +49,14 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
   const [cliente, setCliente]   = useState<Tercero | null>(null);
   const [aerolinea, setAerolinea] = useState<Aerolinea | null>(null);
   const [resolvedId, setResolvedId] = useState<string>("");
+  const [moneda, setMoneda] = useState<"COP" | "USD">("COP");
 
   useEffect(() => { params.then(({ id }) => setResolvedId(id)); }, [params]);
+
+  useEffect(() => {
+    const m = new URLSearchParams(window.location.search).get("moneda");
+    if (m === "USD" || m === "COP") setMoneda(m);
+  }, []);
 
   useEffect(() => {
     if (!resolvedId) return;
@@ -70,8 +76,17 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
     return <div style={{ padding: 40, color: "#999", fontSize: 13 }}>Cargando...</div>;
   }
 
-  const trm = cot.trm ?? 1;
-  let grandTotalCOP = 0;
+  const trm = Number(cot.trm ?? 1);
+  // Conversión a nivel de impresión: convierte el valor desde la moneda de la
+  // línea a la moneda destino elegida, usando la TRM de la cotización.
+  // OJO: total_venta/valor_unitario/minimo llegan de la API como string (NUMERIC).
+  // Se coacciona a número para evitar concatenación en las sumas.
+  const conv = (v: number, from: string) => {
+    const n = Number(v);
+    return from === moneda ? n : moneda === "USD" ? n / trm : n * trm;
+  };
+  const decMon = moneda === "USD" ? 2 : 0;
+  let grandTotal = 0;
   const seccionesConLineas = SECCIONES.filter(({ key }) => cot.lineas.some((l) => l.seccion === key));
 
   return (
@@ -171,8 +186,8 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
         {/* Secciones */}
         {seccionesConLineas.map(({ key, label }) => {
           const filas = cot.lineas.filter((l) => l.seccion === key);
-          const subtotalCOP = filas.reduce((acc, l) => acc + l.total_venta * (l.moneda === "USD" ? trm : 1), 0);
-          grandTotalCOP += subtotalCOP;
+          const subtotal = filas.reduce((acc, l) => acc + conv(l.total_venta, l.moneda), 0);
+          grandTotal += subtotal;
           return (
             <div key={key} style={{ marginBottom: 20 }}>
               <div style={{ background: "#1e40af", color: "#fff", padding: "5px 12px", borderRadius: "6px 6px 0 0", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -203,7 +218,7 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
                       <td style={{ padding: "5px 10px", borderBottom: "1px solid #f1f5f9" }}>
                         <div>{l.descripcion}</div>
                         {l.minimo != null && (
-                          <div style={{ color: "#94a3b8", fontSize: 9 }}>Mínimo: {l.moneda} {fmt(l.minimo)}</div>
+                          <div style={{ color: "#94a3b8", fontSize: 9 }}>Mínimo: {moneda} {fmt(conv(l.minimo, l.moneda))}</div>
                         )}
                       </td>
                       <td style={{ padding: "5px 8px", textAlign: "center", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
@@ -213,21 +228,21 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
                         {l.tipo_calculo === "POR_KG" ? fmt(l.base, 2) : ""}
                       </td>
                       <td style={{ padding: "5px 10px", textAlign: "right", color: "#475569", borderBottom: "1px solid #f1f5f9" }}>
-                        {l.tipo_calculo === "PORCENTAJE" ? `${fmt(l.valor_unitario)}%` : fmt(l.valor_unitario)}
+                        {l.tipo_calculo === "PORCENTAJE" ? `${fmt(l.valor_unitario)}%` : fmt(conv(l.valor_unitario, l.moneda))}
                       </td>
                       <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #f1f5f9" }}>
-                        {fmt(l.total_venta)}
+                        {fmt(conv(l.total_venta, l.moneda))}
                       </td>
                       <td style={{ padding: "5px 8px", textAlign: "center", borderBottom: "1px solid #f1f5f9" }}>
-                        <span style={{ background: l.moneda === "USD" ? "#dcfce7" : "#dbeafe", color: l.moneda === "USD" ? "#15803d" : "#1d4ed8", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>
-                          {l.moneda}
+                        <span style={{ background: moneda === "USD" ? "#dcfce7" : "#dbeafe", color: moneda === "USD" ? "#15803d" : "#1d4ed8", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>
+                          {moneda}
                         </span>
                       </td>
                     </tr>
                   ))}
                   <tr style={{ background: "#eff6ff" }}>
                     <td colSpan={4} style={{ padding: "5px 10px", fontWeight: 700, color: "#1e40af", fontSize: 10 }}>Subtotal {label}</td>
-                    <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 700, color: "#1e40af" }}>COP {fmt(subtotalCOP, 0)}</td>
+                    <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 700, color: "#1e40af" }}>{moneda} {fmt(subtotal, decMon)}</td>
                     <td />
                   </tr>
                 </tbody>
@@ -243,7 +258,7 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
           </div>
           <div style={{ background: "#1e40af", color: "#fff", borderRadius: 8, padding: "12px 24px", textAlign: "right", minWidth: 240 }}>
             <div style={{ fontSize: 10, opacity: 0.8, marginBottom: 2 }}>TOTAL APROXIMADO</div>
-            <div style={{ fontSize: 18, fontWeight: 800 }}>COP {fmt(grandTotalCOP, 0)}</div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>{moneda} {fmt(grandTotal, decMon)}</div>
             <div style={{ fontSize: 9, opacity: 0.7, marginTop: 2 }}>+ IVA</div>
           </div>
         </div>

@@ -20,7 +20,7 @@ interface Cotizacion {
   id: string; numero: string; cliente_id: string;
   fecha: string; fecha_vigencia: string;
   tipo_operacion: string; origen: string; destino: string;
-  aerolinea_id: string | null;
+  aerolinea_id: string | null; incoterm: string | null;
   piezas: number | null; peso_kg: number | null;
   valor_mercancia: number | null; moneda_mercancia: string;
   trm: number | null; notas: string | null;
@@ -36,6 +36,7 @@ interface Operacion {
 
 interface Hawb {
   id: string; numero_hawb: string;
+  cotizacion_id: string | null; cotizacion_numero: string | null; cliente_nombre: string | null;
   shipper_id: string; consignee_id: string;
   aeropuerto_origen_id: string | null; aeropuerto_destino_id: string | null;
   aerolinea_id: string | null; vuelo: string | null;
@@ -66,11 +67,14 @@ interface ManifiestoLinea {
 interface Manifiesto {
   id: string; mawb_id: string; aerolinea_id: string | null;
   fecha: string; estado: string; lineas: ManifiestoLinea[];
+  emitido_por_nombre?: string | null; emitido_en?: string | null;
+  anulado_por_nombre?: string | null; anulado_en?: string | null; anulado_motivo?: string | null;
 }
 
 interface Evento {
   id: string; fecha_hora: string; usuario_id: string;
   tipo: string; descripcion: string; notificado_cliente: boolean;
+  hawb_id: string | null; hawb_numero: string | null;
 }
 
 interface Documento {
@@ -78,9 +82,12 @@ interface Documento {
   estado: string; fecha_recepcion: string | null; archivo: string | null;
 }
 
+interface Cliente { id: string; nombre: string; nit: string | null; }
+
 interface Carpeta {
   operacion: Operacion;
-  cotizacion: Cotizacion;
+  cotizaciones: Cotizacion[];
+  clientes: Cliente[];
   hawbs: Hawb[];
   mawbs: Mawb[];
   manifiestos: Manifiesto[];
@@ -185,6 +192,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const [confirmarCerrar, setConfirmarCerrar] = useState(false);
   const [anularManifId, setAnularManifId] = useState<string | null>(null);
+  const [emitirManifId, setEmitirManifId] = useState<string | null>(null);
+  const [motivoManif, setMotivoManif]     = useState("");
+  const [menuManifId, setMenuManifId]     = useState<string | null>(null);
 
   // Modales (solo Bitácora, Documentos y Manifiesto — HAWB y MAWB tienen página propia)
   const [manifiestoModal, setManifiestoModal] = useState(false);
@@ -192,7 +202,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [documentoModal, setDocumentoModal] = useState(false);
   const [docEditar, setDocEditar] = useState<Documento | null>(null);
 
-  const [eventoForm, setEventoForm] = useState({ tipo: "STATUS", descripcion: "", notificado_cliente: false });
+  const [eventoForm, setEventoForm] = useState({ tipo: "STATUS", descripcion: "", notificado_cliente: false, hawb_id: "" });
   const [docForm, setDocForm] = useState({ tipo: "FACTURA_COMERCIAL", nombre: "" });
   const [docEditForm, setDocEditForm] = useState<{ estado: string; fecha_recepcion: string; archivo: File | null }>({ estado: "RECIBIDO", fecha_recepcion: "", archivo: null });
   const [manifiestoForm, setManifiestoForm] = useState({ mawb_id: "", aerolinea_id: "", fecha: "" });
@@ -212,8 +222,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     try {
       const data = await apiFetch<Carpeta>(`/operaciones/operaciones/${resolvedId}/carpeta`);
       setCarpeta(data);
-      const t = await apiFetch<Tercero>(`/terceros/${data.cotizacion.cliente_id}`);
-      setClienteNombre(t.razon_social);
+      setClienteNombre(data.clientes.map((c) => c.nombre).join(", "));
       // Resolver nombres de shipper/consignee de HAWBs y MAWBs
       const ids = new Set<string>();
       data.hawbs.forEach((h) => { ids.add(h.shipper_id); ids.add(h.consignee_id); });
@@ -248,12 +257,22 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     finally { setSaving(false); }
   }
 
-  async function cambiarEstadoManifiesto(manifiestoId: string, nuevoEstado: string) {
+  async function emitirManifiesto(manifiestoId: string) {
     if (!carpeta) return;
     setSaving(true); setError("");
     try {
-      await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/manifiestos/${manifiestoId}`, {
-        method: "PUT", body: JSON.stringify({ estado: nuevoEstado }),
+      await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/manifiestos/${manifiestoId}/emitir`, { method: "POST" });
+      await cargarCarpeta();
+    } catch (e) { setError(e instanceof Error ? e.message : "Error"); }
+    finally { setSaving(false); }
+  }
+
+  async function anularManifiesto(manifiestoId: string, motivo: string) {
+    if (!carpeta) return;
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/manifiestos/${manifiestoId}/anular`, {
+        method: "POST", body: JSON.stringify({ motivo }),
       });
       await cargarCarpeta();
     } catch (e) { setError(e instanceof Error ? e.message : "Error"); }
@@ -322,10 +341,10 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     setSaving(true); setError("");
     try {
       await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/eventos`, {
-        method: "POST", body: JSON.stringify(eventoForm),
+        method: "POST", body: JSON.stringify({ ...eventoForm, hawb_id: eventoForm.hawb_id || null }),
       });
       setEventoModal(false);
-      setEventoForm({ tipo: "STATUS", descripcion: "", notificado_cliente: false });
+      setEventoForm({ tipo: "STATUS", descripcion: "", notificado_cliente: false, hawb_id: "" });
       await cargarCarpeta();
     } catch (e) { setError(e instanceof Error ? e.message : "Error al guardar evento"); }
     finally { setSaving(false); }
@@ -397,7 +416,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     return <div className="p-8 text-[12px] text-gray-400">Cargando...</div>;
   }
 
-  const { operacion, cotizacion, hawbs, mawbs, manifiestos, eventos, documentos } = carpeta;
+  const { operacion, cotizaciones, clientes, hawbs, mawbs, manifiestos, eventos, documentos } = carpeta;
+  const cotizacion = cotizaciones[0];
 
   // Operación cerrada o cancelada: no admite nuevos MAWB / HAWB / Manifiesto.
   const opBloqueada = operacion.estado === "CERRADA" || operacion.estado === "CANCELADA";
@@ -446,10 +466,10 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               </span>
             </div>
             <p className="text-[12px] text-gray-500 mt-0.5">
-              {clienteNombre} · {cotizacion.origen} → {cotizacion.destino} · {cotizacion.tipo_operacion}
+              {clienteNombre}{cotizacion ? ` · ${cotizacion.origen} → ${cotizacion.destino} · ${cotizacion.tipo_operacion}` : ""}
             </p>
             <p className="text-[11px] text-gray-400 mt-0.5">
-              Apertura: {operacion.fecha_apertura} · Cotización: {cotizacion.numero}
+              Apertura: {operacion.fecha_apertura} · {cotizaciones.length} cotización(es) · {clientes.length} cliente(s)
             </p>
           </div>
           <div className="flex gap-2">
@@ -477,19 +497,44 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
       {error && <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-600">{error}</div>}
 
+      {emitirManifId && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Emitir manifiesto</h2>
+            <p className="text-[12px] text-gray-500 mb-4">
+              ¿Confirmas la emisión de este manifiesto? Quedará registrado tu usuario y la fecha. Una vez emitido no se puede editar.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEmitirManifId(null)} disabled={saving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={async () => { await emitirManifiesto(emitirManifId); setEmitirManifId(null); }} disabled={saving}
+                className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Emitiendo..." : "Emitir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {anularManifId && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
             <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Anular manifiesto</h2>
             <p className="text-[12px] text-gray-500 mb-3">
-              ¿Confirmas anular este manifiesto? Quedará en solo lectura; si necesitas corregir, crea uno nuevo.
+              Indica el motivo de la anulación. Quedará en solo lectura; si necesitas corregir, crea uno nuevo.
             </p>
+            <textarea value={motivoManif} onChange={(e) => setMotivoManif(e.target.value)} rows={3} placeholder="Motivo…"
+              className="w-full border border-gray-200 rounded-lg text-[12px] p-2 mb-3 focus:outline-none focus:ring-1 focus:ring-blue-500" />
             <div className="flex justify-end gap-2">
               <button onClick={() => setAnularManifId(null)} disabled={saving}
                 className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                 No, volver
               </button>
-              <button onClick={async () => { await cambiarEstadoManifiesto(anularManifId, "ANULADA"); setAnularManifId(null); }} disabled={saving}
+              <button
+                onClick={async () => { if (!motivoManif.trim()) { setError("Indica el motivo de anulación"); return; } await anularManifiesto(anularManifId, motivoManif); setAnularManifId(null); }}
+                disabled={saving}
                 className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                 {saving ? "Anulando..." : "Sí, anular"}
               </button>
@@ -574,31 +619,40 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
       {/* ── Tab: Datos ────────────────────────────────────────────────── */}
       {tab === "datos" && (
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Datos de la cotización</p>
-            {([
-              ["Número cotización", cotizacion.numero],
-              ["Tipo operación", cotizacion.tipo_operacion],
-              ["Ruta", `${cotizacion.origen} → ${cotizacion.destino}`],
-              ["Incoterm", cotizacion.incoterm ?? "—"],
-              ["Piezas", cotizacion.piezas?.toString() ?? "—"],
-              ["Peso cargable", cotizacion.peso_kg ? `${fmt(cotizacion.peso_kg, 4)} kg` : "—"],
-              ["Valor mercancía", cotizacion.valor_mercancia ? `${cotizacion.moneda_mercancia} ${fmt(cotizacion.valor_mercancia)}` : "—"],
-              ["TRM", cotizacion.trm ? fmt(cotizacion.trm, 2) : "—"],
-              ["Fecha cotización", cotizacion.fecha],
-              ["Vigencia", cotizacion.fecha_vigencia],
-            ] as [string, string][]).map(([k, v]) => (
-              <div key={k} className="flex justify-between text-[12px]">
-                <span className="text-gray-400">{k}</span>
-                <span className="text-gray-800 font-medium text-right max-w-[55%]">{v}</span>
+          <div className="space-y-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              Cotizaciones / clientes ({cotizaciones.length})
+            </p>
+            {cotizaciones.map((cot) => (
+              <div key={cot.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-bold text-gray-800">
+                    {clientes.find((c) => c.id === cot.cliente_id)?.nombre ?? "Cliente"}
+                  </span>
+                  <span className="font-mono text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{cot.numero}</span>
+                </div>
+                {([
+                  ["Ruta", `${cot.origen} → ${cot.destino}`],
+                  ["Tipo / Incoterm", `${cot.tipo_operacion} · ${cot.incoterm ?? "—"}`],
+                  ["Piezas / Peso", `${cot.piezas ?? "—"} · ${cot.peso_kg ? `${fmt(cot.peso_kg, 2)} kg` : "—"}`],
+                  ["Valor mercancía", cot.valor_mercancia ? `${cot.moneda_mercancia} ${fmt(cot.valor_mercancia)}` : "—"],
+                  ["TRM", cot.trm ? fmt(cot.trm, 2) : "—"],
+                  ["Vigencia", cot.fecha_vigencia],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k} className="flex justify-between text-[12px]">
+                    <span className="text-gray-400">{k}</span>
+                    <span className="text-gray-800 font-medium text-right max-w-[55%]">{v}</span>
+                  </div>
+                ))}
+                {cot.notas && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 whitespace-pre-line">{cot.notas}</p>
+                )}
+                <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cot.id}`, "_blank")}
+                  className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
+                  Ver cotización completa ↗
+                </button>
               </div>
             ))}
-            <div className="pt-2">
-              <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cotizacion.id}`, "_blank")}
-                className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
-                Ver cotización completa ↗
-              </button>
-            </div>
           </div>
           <div className="space-y-4">
             <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
@@ -619,12 +673,6 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 </div>
               ))}
             </div>
-            {cotizacion.notas && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-2">Notas / condiciones</p>
-                <p className="text-[12px] text-amber-800 whitespace-pre-line">{cotizacion.notas}</p>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -771,29 +819,46 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 <div className="flex items-center gap-3">
                   <span className="text-[12px] font-semibold text-gray-700">Manifiesto — {m.fecha}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ESTADO_DOC[m.estado] ?? "bg-gray-100 text-gray-500"}`}>{m.estado}</span>
+                  {m.estado === "EMITIDA" && m.emitido_por_nombre && (
+                    <span className="text-[10px] text-green-700">Emitido por {m.emitido_por_nombre}{m.emitido_en ? ` · ${m.emitido_en.slice(0, 10)}` : ""}</span>
+                  )}
+                  {m.estado === "ANULADA" && (
+                    <span className="text-[10px] text-red-600">Anulado{m.anulado_por_nombre ? ` por ${m.anulado_por_nombre}` : ""}{m.anulado_en ? ` · ${m.anulado_en.slice(0, 10)}` : ""}{m.anulado_motivo ? ` — ${m.anulado_motivo}` : ""}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-gray-400 mr-1">{m.lineas.length} HAWB{m.lineas.length !== 1 ? "s" : ""}</span>
-                  {!opBloqueada && m.estado === "BORRADOR" && (
-                    <button onClick={() => cambiarEstadoManifiesto(m.id, "EMITIDA")} disabled={saving}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[11px] rounded-lg transition-colors">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Emitir
-                    </button>
-                  )}
-                  {!opBloqueada && (m.estado === "BORRADOR" || m.estado === "EMITIDA") && (
-                    <button onClick={() => setAnularManifId(m.id)} disabled={saving}
-                      className="flex items-center gap-1.5 px-2.5 py-1 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 text-[11px] rounded-lg transition-colors">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                      Anular
-                    </button>
-                  )}
                   <button
                     onClick={() => window.open(`/manifiesto/${operacion.id}/${m.id}`, "_blank")}
                     className="flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-[11px] rounded-lg transition-colors">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                     Imprimir
                   </button>
+                  {!opBloqueada && m.estado !== "ANULADA" && (
+                    <div className="relative">
+                      <button onClick={() => setMenuManifId(menuManifId === m.id ? null : m.id)} disabled={saving} title="Más acciones"
+                        className="px-2 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-[15px] leading-none rounded-lg transition-colors">
+                        ⋮
+                      </button>
+                      {menuManifId === m.id && (
+                        <>
+                          <div onClick={() => setMenuManifId(null)} className="fixed inset-0 z-40" />
+                          <div className="absolute right-0 top-[115%] z-40 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[140px] overflow-hidden">
+                            {m.estado === "BORRADOR" && (
+                              <button onClick={() => { setMenuManifId(null); setError(""); setEmitirManifId(m.id); }}
+                                className="block w-full text-left px-3 py-2 text-[12px] font-semibold text-green-700 hover:bg-gray-50">
+                                Emitir
+                              </button>
+                            )}
+                            <button onClick={() => { setMenuManifId(null); setError(""); setMotivoManif(""); setAnularManifId(m.id); }}
+                              className={`block w-full text-left px-3 py-2 text-[12px] text-red-600 hover:bg-gray-50 ${m.estado === "BORRADOR" ? "border-t border-gray-100" : ""}`}>
+                              Anular
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               {m.lineas.length > 0 && (
@@ -854,6 +919,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                         <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
                           {TIPO_EVENTO[ev.tipo] ?? ev.tipo}
                         </span>
+                        {ev.hawb_numero && (
+                          <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{ev.hawb_numero}</span>
+                        )}
                         {ev.notificado_cliente && (
                           <span className="text-[10px] text-green-600 font-medium">· Notificado al cliente</span>
                         )}
@@ -1064,6 +1132,16 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 <select className={inputCls} value={eventoForm.tipo}
                   onChange={(e) => setEventoForm((p) => ({ ...p, tipo: e.target.value }))}>
                   {Object.entries(TIPO_EVENTO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>HAWB (opcional — dirige el evento a un cliente)</label>
+                <select className={inputCls} value={eventoForm.hawb_id}
+                  onChange={(e) => setEventoForm((p) => ({ ...p, hawb_id: e.target.value }))}>
+                  <option value="">General (toda la operación)</option>
+                  {hawbs.map((h) => (
+                    <option key={h.id} value={h.id}>{h.numero_hawb}{h.cliente_nombre ? ` · ${h.cliente_nombre}` : ""}</option>
+                  ))}
                 </select>
               </div>
               <div>

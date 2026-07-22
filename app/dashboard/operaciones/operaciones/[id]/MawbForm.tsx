@@ -144,6 +144,15 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
   const [fechaEjecucion, setFechaEjecucion] = useState("");
   const [lugarEjecucion, setLugarEjecucion] = useState("BOGOTA - COLOMBIA");
   const [estado, setEstado] = useState<"BORRADOR"|"EMITIDA"|"ANULADA">("BORRADOR");
+  const [emitidoPor, setEmitidoPor] = useState<string|null>(null);
+  const [emitidoEn, setEmitidoEn]   = useState<string|null>(null);
+  const [anuladoPor, setAnuladoPor] = useState<string|null>(null);
+  const [anuladoEn, setAnuladoEn]   = useState<string|null>(null);
+  const [anuladoMotivo, setAnuladoMotivo] = useState<string|null>(null);
+  const [emitirOpen, setEmitirOpen] = useState(false);
+  const [anularOpen, setAnularOpen] = useState(false);
+  const [motivoAnular, setMotivoAnular] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -207,6 +216,11 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
           setFechaEjecucion((data.fecha_ejecucion as string) ?? "");
           setLugarEjecucion((data.lugar_ejecucion as string) || "BOGOTA - COLOMBIA");
           setEstado((data.estado as "BORRADOR"|"EMITIDA"|"ANULADA") ?? "BORRADOR");
+          setEmitidoPor((data.emitido_por_nombre as string) ?? null);
+          setEmitidoEn((data.emitido_en as string) ?? null);
+          setAnuladoPor((data.anulado_por_nombre as string) ?? null);
+          setAnuladoEn((data.anulado_en as string) ?? null);
+          setAnuladoMotivo((data.anulado_motivo as string) ?? null);
         }).catch(() => {});
     }
   }, [operacionId, mawbId, isNuevo]);
@@ -255,7 +269,6 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
         total_prepaid: totalPrepaidVal ? parseFloat(totalPrepaidVal) : null,
         fecha_ejecucion: fechaEjecucion || null,
         lugar_ejecucion: lugarEjecucion || null,
-        estado,
       };
       if (isNuevo) {
         await apiFetch(`/operaciones/operaciones/${operacionId}/mawbs`, { method: "POST", body: JSON.stringify(payload) });
@@ -267,6 +280,32 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
     finally { setSaving(false); }
   }
 
+  async function emitir() {
+    setSaving(true); setError("");
+    try {
+      const d = await apiFetch<Record<string, unknown>>(`/operaciones/operaciones/${operacionId}/mawbs/${mawbId}/emitir`, { method: "POST" });
+      setEstado("EMITIDA");
+      setEmitidoPor((d.emitido_por_nombre as string) ?? null);
+      setEmitidoEn((d.emitido_en as string) ?? null);
+      setEmitirOpen(false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al emitir"); }
+    finally { setSaving(false); }
+  }
+
+  async function anular() {
+    if (!motivoAnular.trim()) { setError("Indica el motivo de anulación"); return; }
+    setSaving(true); setError("");
+    try {
+      const d = await apiFetch<Record<string, unknown>>(`/operaciones/operaciones/${operacionId}/mawbs/${mawbId}/anular`, { method: "POST", body: JSON.stringify({ motivo: motivoAnular }) });
+      setEstado("ANULADA");
+      setAnuladoPor((d.anulado_por_nombre as string) ?? null);
+      setAnuladoEn((d.anulado_en as string) ?? null);
+      setAnuladoMotivo(motivoAnular);
+      setAnularOpen(false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al anular"); }
+    finally { setSaving(false); }
+  }
+
   return (
     <div style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
 
@@ -274,32 +313,34 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", marginBottom: 12 }}>
         <div>
           <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${operacionId}?tab=mawb`)}
-            style={{ fontSize: 11, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-            ← {operacion?.numero ?? "Operación"} · MAWB
+            style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, background: "#eff6ff", border: "1px solid #dbeafe", borderRadius: 6, padding: "3px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>←</span> {operacion?.numero ?? "Operación"} · MAWB
           </button>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#111" }}>
-            {isNuevo ? "Nuevo MAWB" : `MAWB ${mawbFull}`}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#111" }}>
+              {isNuevo ? "Nuevo MAWB" : `MAWB ${mawbFull}`}
+            </span>
+            {!isNuevo && (
+              <span style={{ padding: "2px 9px", borderRadius: 12, fontSize: 10, fontWeight: 700,
+                background: estado === "EMITIDA" ? "#dcfce7" : estado === "ANULADA" ? "#fee2e2" : "#f1f5f9",
+                color: estado === "EMITIDA" ? "#15803d" : estado === "ANULADA" ? "#b91c1c" : "#475569" }}>
+                {estado}
+              </span>
+            )}
           </div>
+          {!isNuevo && estado === "EMITIDA" && emitidoPor && (
+            <div style={{ fontSize: 10, color: "#15803d" }}>Emitido por {emitidoPor}{emitidoEn ? ` · ${emitidoEn.slice(0, 10)}` : ""}</div>
+          )}
+          {!isNuevo && estado === "ANULADA" && (
+            <div style={{ fontSize: 10, color: "#b91c1c" }}>Anulado{anuladoPor ? ` por ${anuladoPor}` : ""}{anuladoEn ? ` · ${anuladoEn.slice(0, 10)}` : ""}{anuladoMotivo ? ` — ${anuladoMotivo}` : ""}</div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {error && <span style={{ fontSize: 11, color: "#dc2626" }}>{error}</span>}
-          {!isNuevo && (
-            <select value={estado} onChange={(e) => setEstado(e.target.value as "BORRADOR"|"EMITIDA"|"ANULADA")}
-              disabled={!editable && estado !== "BORRADOR"}
-              style={{ padding: "3px 8px", border: "1px solid #e2e8f0", borderRadius: 5, fontSize: 11 }}>
-              <option value="BORRADOR">BORRADOR</option>
-              <option value="EMITIDA">EMITIDA</option>
-              <option value="ANULADA">ANULADA</option>
-            </select>
-          )}
-          <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${operacionId}?tab=mawb`)}
-            style={{ padding: "4px 12px", border: "1px solid #e2e8f0", borderRadius: 5, fontSize: 11, cursor: "pointer", background: "#fff" }}>
-            Cancelar
-          </button>
           {editable && (
             <button onClick={guardar} disabled={saving}
               style={{ padding: "4px 14px", background: saving ? "#64748b" : "#2563eb", color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-              {saving ? "Guardando..." : "Guardar MAWB"}
+              {saving ? "Guardando..." : "Guardar"}
             </button>
           )}
           {!isNuevo && (
@@ -308,8 +349,63 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
               Imprimir ↗
             </button>
           )}
+          {!isNuevo && estado !== "ANULADA" && (
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setMenuOpen((o) => !o)} disabled={saving} title="Más acciones"
+                style={{ padding: "4px 8px", background: "#fff", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 5, fontSize: 15, lineHeight: 1, cursor: "pointer" }}>
+                ⋮
+              </button>
+              {menuOpen && (
+                <>
+                  <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                  <div style={{ position: "absolute", right: 0, top: "115%", zIndex: 41, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 150, overflow: "hidden" }}>
+                    {estado === "BORRADOR" && (
+                      <button onClick={() => { setMenuOpen(false); setError(""); setEmitirOpen(true); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#15803d", background: "none", border: "none", cursor: "pointer" }}>
+                        Emitir
+                      </button>
+                    )}
+                    <button onClick={() => { setMenuOpen(false); setError(""); setMotivoAnular(""); setAnularOpen(true); }}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, color: "#b91c1c", background: "none", border: "none", borderTop: estado === "BORRADOR" ? "1px solid #f1f5f9" : "none", cursor: "pointer" }}>
+                      Anular
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Modal emitir */}
+      {emitirOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: 22, width: 340, boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 6 }}>Emitir MAWB</div>
+            <p style={{ fontSize: 12, color: "#475569", marginBottom: 16 }}>¿Confirmas la emisión de <b>{mawbFull}</b>? Quedará registrado tu usuario y la fecha. Una vez emitido no se puede editar.</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setEmitirOpen(false)} style={{ padding: "5px 14px", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 12, background: "#fff", cursor: "pointer" }}>Cancelar</button>
+              <button onClick={emitir} disabled={saving} style={{ padding: "5px 16px", background: "#15803d", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{saving ? "Emitiendo..." : "Emitir"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal anular */}
+      {anularOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: 22, width: 360, boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 6 }}>Anular MAWB</div>
+            <p style={{ fontSize: 12, color: "#475569", marginBottom: 10 }}>Indica el motivo de la anulación de <b>{mawbFull}</b>. Quedará registrado tu usuario y la fecha.</p>
+            <textarea value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} rows={3} placeholder="Motivo…"
+              style={{ width: "100%", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 12, padding: 8, marginBottom: 12, resize: "vertical" }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setAnularOpen(false)} style={{ padding: "5px 14px", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 12, background: "#fff", cursor: "pointer" }}>Cancelar</button>
+              <button onClick={anular} disabled={saving} style={{ padding: "5px 16px", background: "#b91c1c", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{saving ? "Anulando..." : "Anular"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TABLA AWB */}
       <div style={{ padding: "0 8px 24px" }}>

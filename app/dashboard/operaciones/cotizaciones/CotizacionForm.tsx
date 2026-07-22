@@ -425,6 +425,12 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [lineaModal, setLineaModal]   = useState<{ seccion: string; linea: Linea | null; idx: number | null } | null>(null);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
+  const [printOpen, setPrintOpen]     = useState(false);
+  const [printMoneda, setPrintMoneda] = useState<"COP" | "USD">("COP");
+  const [aprobarOpen, setAprobarOpen] = useState(false);
+  const [opsAbiertas, setOpsAbiertas] = useState<{ id: string; numero: string; clientes: { nombre: string }[] }[]>([]);
+  const [opElegida, setOpElegida]     = useState("");   // "" = nueva operación
+  const [busquedaOp, setBusquedaOp]   = useState("");
 
   // Cargar catálogos
   useEffect(() => {
@@ -668,18 +674,38 @@ export default function CotizacionForm({ id }: { id: string }) {
     } finally { setSaving(false); }
   }
 
-  async function cambiarEstado(accion: "enviar" | "aprobar" | "rechazar" | "reabrir") {
+  async function cambiarEstado(accion: "enviar" | "rechazar" | "reabrir") {
     setSaving(true); setError("");
     try {
       await apiFetch(`/operaciones/cotizaciones/${cotizacionId}/${accion}`, { method: "POST" });
-      if (accion === "aprobar") {
-        router.push("/dashboard/operaciones/operaciones");
-      } else {
-        await cargarCotizacion();
-      }
+      await cargarCotizacion();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error");
     } finally { setSaving(false); }
+  }
+
+  async function abrirAprobar() {
+    setError("");
+    setOpElegida("");
+    setBusquedaOp("");
+    try {
+      const ops = await apiFetch<{ id: string; numero: string; clientes: { nombre: string }[] }[]>("/operaciones/operaciones?estado=ABIERTA");
+      setOpsAbiertas(ops);
+    } catch { setOpsAbiertas([]); }
+    setAprobarOpen(true);
+  }
+
+  async function confirmarAprobar() {
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/operaciones/cotizaciones/${cotizacionId}/aprobar`, {
+        method: "POST", body: JSON.stringify({ operacion_id: opElegida || null }),
+      });
+      router.push("/dashboard/operaciones/operaciones");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error");
+      setSaving(false);
+    }
   }
 
   return (
@@ -701,7 +727,7 @@ export default function CotizacionForm({ id }: { id: string }) {
             <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold ${ESTADO_STYLE[estado] ?? "bg-gray-100 text-gray-500"}`}>{estado}</span>
           )}
           {!isNueva && cotizacionId && (
-            <button onClick={() => window.open(`/cotizacion/${cotizacionId}`, "_blank")}
+            <button onClick={() => { setPrintMoneda("COP"); setPrintOpen(true); }}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-[12px] rounded-lg transition-colors">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Imprimir
@@ -725,7 +751,7 @@ export default function CotizacionForm({ id }: { id: string }) {
                 className="px-4 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-700 text-[12px] font-medium rounded-lg">
                 Reabrir
               </button>
-              <button onClick={() => cambiarEstado("aprobar")} disabled={saving}
+              <button onClick={abrirAprobar} disabled={saving}
                 className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">Aprobar</button>
               <button onClick={() => cambiarEstado("rechazar")} disabled={saving}
                 className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">Rechazar</button>
@@ -1087,6 +1113,84 @@ export default function CotizacionForm({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {/* Modal aprobar: nueva operación o asociar a una abierta */}
+      {aprobarOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Aprobar cotización</h2>
+            <p className="text-[11px] text-gray-400 mb-4">Al aprobar se genera la carpeta operativa. Puedes crear una operación nueva o asociar esta cotización a una operación abierta (consolidación de clientes).</p>
+
+            <label className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 mb-3">
+              <input type="radio" name="op" checked={opElegida === ""} onChange={() => setOpElegida("")} className="accent-blue-600" />
+              <span className="text-[12px] font-medium text-gray-700">Crear operación nueva</span>
+            </label>
+
+            <div className="relative mb-2">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input value={busquedaOp} onChange={(e) => setBusquedaOp(e.target.value)}
+                placeholder="Buscar operación abierta por número o cliente…"
+                className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+
+            <div className="space-y-2 mb-5 max-h-72 overflow-y-auto">
+              {opsAbiertas.length === 0 ? (
+                <p className="text-[11px] text-gray-400 px-1 py-2">No hay operaciones abiertas para asociar.</p>
+              ) : (() => {
+                const q = busquedaOp.trim().toLowerCase();
+                const filtradas = q
+                  ? opsAbiertas.filter((op) =>
+                      op.numero.toLowerCase().includes(q) ||
+                      (op.clientes ?? []).some((c) => c.nombre.toLowerCase().includes(q)))
+                  : opsAbiertas;
+                if (filtradas.length === 0) return <p className="text-[11px] text-gray-400 px-1 py-2">Sin coincidencias.</p>;
+                return filtradas.map((op) => (
+                  <label key={op.id} className={`flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer hover:bg-gray-50 ${opElegida === op.id ? "border-blue-400 bg-blue-50/40" : "border-gray-200"}`}>
+                    <input type="radio" name="op" checked={opElegida === op.id} onChange={() => setOpElegida(op.id)} className="accent-blue-600" />
+                    <span className="font-mono font-semibold text-[12px] text-blue-700 shrink-0">{op.numero}</span>
+                    <span className="text-[12px] text-gray-600 truncate">{op.clientes?.length ? op.clientes.map((c) => c.nombre).join(", ") : "Sin clientes aún"}</span>
+                  </label>
+                ));
+              })()}
+            </div>
+            {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setAprobarOpen(false)} disabled={saving}
+                className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button onClick={confirmarAprobar} disabled={saving}
+                className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Aprobando..." : opElegida ? "Asociar y aprobar" : "Crear y aprobar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal moneda de impresión */}
+      {printOpen && cotizacionId && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-xs p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Imprimir cotización</h2>
+            <p className="text-[11px] text-gray-400 mb-4">Elige la moneda en la que se mostrarán los valores. La conversión usa la TRM de la cotización.</p>
+            <div className="space-y-2 mb-5">
+              {(["COP", "USD"] as const).map((m) => (
+                <label key={m} className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input type="radio" name="printMoneda" checked={printMoneda === m}
+                    onChange={() => setPrintMoneda(m)} className="accent-blue-600" />
+                  <span className="text-[12px] text-gray-700 font-medium">{m}</span>
+                  <span className="text-[11px] text-gray-400">— {m === "COP" ? "Pesos" : "Dólares"}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPrintOpen(false)}
+                className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button onClick={() => { window.open(`/cotizacion/${cotizacionId}?moneda=${printMoneda}`, "_blank"); setPrintOpen(false); }}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">Ver impresión</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal línea */}
       {lineaModal && (
