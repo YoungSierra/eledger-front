@@ -359,6 +359,7 @@ function Modal({
   const [cotOpts, setCotOpts] = useState<{ id: string; numero: string }[]>([]);
   const [cotSelId, setCotSelId] = useState("");
   const [cotTrm, setCotTrm] = useState("0");
+  const [trmDia, setTrmDia] = useState("0");
   const [cotFactLineas, setCotFactLineas] = useState<CotFactLinea[]>([]);
   const [cotMontos, setCotMontos] = useState<Record<string, { incluir: boolean; monto: string }>>({});
   const [cargarError, setCargarError] = useState("");
@@ -397,6 +398,9 @@ function Modal({
       const pend = data.lineas.filter(l => parseFloat(l.pendiente) > 0);
       setCotFactLineas(pend);
       setCotTrm(data.trm ?? "0");
+      // La factura se convierte con la TRM del DÍA (no la de la cotización).
+      const hoy = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
+      setTrmDia(hoy?.existe && hoy.tasa ? hoy.tasa : (data.trm ?? "0"));
       const m: Record<string, { incluir: boolean; monto: string }> = {};
       pend.forEach(l => { m[l.linea_id] = { incluir: true, monto: l.pendiente }; });
       setCotMontos(m);
@@ -406,7 +410,8 @@ function Modal({
 
   function aplicarCotizacion() {
     const invCod = monedaSel?.codigo || "COP";
-    const trmN = parseFloat(cotTrm) || 0;
+    // Conversión con la TRM del día (decisión: en factura prevalece la TRM del día).
+    const trmN = parseFloat(trmDia) || parseFloat(cotTrm) || 0;
     const conv = (v: number, from: string) => from === invCod ? v : (invCod === "USD" ? (trmN ? v / trmN : 0) : v * trmN);
     const rnd = (x: number) => Math.round(x * 10 ** decs) / 10 ** decs;
     const nuevas: LineaForm[] = cotFactLineas
