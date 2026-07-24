@@ -205,7 +205,8 @@ export default function CotizacionesPage() {
                 className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[12px] font-bold text-blue-600">{c.numero}</span>
+                    <button onClick={() => router.push(`/dashboard/operaciones/cotizaciones/${c.id}`)}
+                      className="font-mono text-[12px] font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors">{c.numero}</button>
                     <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${TIPO_STYLE[c.tipo_operacion]}`}>
                       {c.tipo_operacion === "IMPORTACION" ? "IMP" : "EXP"}
                     </span>

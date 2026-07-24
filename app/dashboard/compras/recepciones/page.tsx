@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import AsientoModal, { AsientoData } from "@/components/AsientoModal";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -84,6 +85,47 @@ function hoyLocal() {
 
 // ─── OC Search ────────────────────────────────────────────────────────────────
 
+function ProvSearch({ onChange }: { onChange: (id: string, d: string) => void }) {
+  const [q, setQ] = useState("");
+  const [opts, setOpts] = useState<{ id: string; nit: string; razon_social: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const ref = useRef<HTMLInputElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function buscar(v: string) {
+    setQ(v);
+    if (timer.current) clearTimeout(timer.current);
+    if (v.trim().length < 2) { setOpts([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      const data = await apiFetch<{ id: string; nit: string; razon_social: string }[]>(`/terceros?busqueda=${encodeURIComponent(v)}&solo_activos=true&tipo_tercero=PROVEEDOR`).catch(() => []);
+      if (data.length > 0 && ref.current) {
+        const r = ref.current.getBoundingClientRect();
+        setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 300) });
+      }
+      setOpts(data.slice(0, 10)); setOpen(data.length > 0);
+    }, 250);
+  }
+  return (
+    <div className="relative">
+      <input ref={ref} value={q} onChange={e => buscar(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Buscar proveedor…" className="w-full text-[12px] border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+      {open && (
+        <div className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}>
+          {opts.map(t => (
+            <button key={t.id} type="button"
+              onMouseDown={() => { setQ(`${t.nit} — ${t.razon_social}`); setOpen(false); onChange(t.id, `${t.nit} — ${t.razon_social}`); }}
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors">
+              <span className="text-[11px] font-mono text-blue-600 mr-2">{t.nit}</span>
+              <span className="text-[11px] text-gray-700">{t.razon_social}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OcSearch({ display, onChange }: { display: string; onChange: (id: string, d: string) => void }) {
   const [q, setQ] = useState(display);
   const [opts, setOpts] = useState<OcSearch[]>([]);
@@ -155,6 +197,10 @@ export default function RecepcionesPage() {
   const porPagina = 20;
   const [loading, setLoading] = useState(true);
   const [fEstado, setFEstado] = useState("");
+  const [flDesde, setFlDesde] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [flHasta, setFlHasta] = useState(() => new Date().toISOString().slice(0, 10));
+  const [flProvId, setFlProvId] = useState("");
+  const [flProvDisplay, setFlProvDisplay] = useState("");
   // El backend lista por fecha descendente — ese es el orden inicial.
   const { orden, alternar } = useOrden<
     "numero" | "fecha" | "oc" | "proveedor" | "bodega" | "costo" | "estado"
@@ -164,6 +210,17 @@ export default function RecepcionesPage() {
 
   const [modo, setModo] = useState<"crear" | "editar" | "ver" | null>(null);
   const [activo, setActivo] = useState<Recepcion | null>(null);
+  const [preview, setPreview] = useState<AsientoData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  async function verAsiento(id: string) {
+    setPreviewLoading(true);
+    try {
+      const d = await apiFetch<AsientoData>(`/compras/recepciones/${id}/asiento`);
+      setPreview(d);
+    } catch { /* noop */ }
+    finally { setPreviewLoading(false); }
+  }
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -201,15 +258,18 @@ export default function RecepcionesPage() {
     try {
       const params = new URLSearchParams({ pagina: String(pagina), por_pagina: String(porPagina) });
       if (fEstado) params.set("estado", fEstado);
+      if (flDesde) params.set("fecha_desde", flDesde);
+      if (flHasta) params.set("fecha_hasta", flHasta);
+      if (flProvId) params.set("proveedor_id", flProvId);
       const d: ListResponse = await apiFetch(`/compras/recepciones?${params}`);
       setLista(d.items);
       setTotalItems(d.total);
     } finally {
       setLoading(false);
     }
-  }, [pagina, fEstado]);
+  }, [pagina, fEstado, flDesde, flHasta, flProvId]);
 
-  useEffect(() => { cargarLista(); }, [cargarLista]);
+  useEffect(() => { cargarLista(); }, [pagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     apiFetch("/inventario/bodegas").then((d: any) => {
@@ -363,27 +423,60 @@ export default function RecepcionesPage() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col">
-      {/* Barra superior */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white flex-shrink-0">
-        <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
+      {/* Encabezado */}
+      <div className="flex items-center justify-between mb-4 shrink-0">
+        <div>
+          <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
+          <p className="text-[12px] text-gray-400 mt-0.5">Recepciones de mercancía de proveedores</p>
+        </div>
         <button onClick={abrirCrear}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-[12px] font-medium hover:bg-blue-700">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Nueva recepción
         </button>
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-3 px-6 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
-        <select value={fEstado} onChange={(e) => { setFEstado(e.target.value); setPagina(1); }}
-          className="text-[12px] border border-gray-200 rounded px-2 py-1 bg-white text-gray-700">
-          <option value="">Todos los estados</option>
-          {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+      <div className="flex flex-wrap items-end gap-3 mb-4 shrink-0">
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Estado</label>
+          <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">Todos</option>
+            {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Desde</label>
+          <input type="date" value={flDesde} onChange={(e) => setFlDesde(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Hasta</label>
+          <input type="date" value={flHasta} onChange={(e) => setFlHasta(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div className="w-52">
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Proveedor</label>
+          {flProvId ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{flProvDisplay}</span>
+              <button onClick={() => { setFlProvId(""); setFlProvDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <ProvSearch onChange={(id, d) => { setFlProvId(id); setFlProvDisplay(d); }} />
+          )}
+        </div>
+        <button onClick={() => { setPagina(1); cargarLista(); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+       <div className="flex-1 overflow-auto">
         <table className="w-full min-w-[760px] text-[12px]">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
             <tr className="text-[10px] font-bold uppercase text-gray-400">
@@ -404,7 +497,12 @@ export default function RecepcionesPage() {
               <tr><td colSpan={8} className="text-center py-10 text-gray-400">Sin recepciones</td></tr>
             ) : ordenada.map((r) => (
               <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
-                <td className="px-4 py-2.5 font-mono text-blue-600 font-semibold whitespace-nowrap">{r.numero}</td>
+                <td className="px-4 py-2.5 whitespace-nowrap">
+                  <button onClick={() => abrirVer(r.id)}
+                    className="font-mono text-blue-600 font-semibold hover:text-blue-800 hover:underline transition-colors">
+                    {r.numero}
+                  </button>
+                </td>
                 <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.fecha}</td>
                 <td className="px-4 py-2.5 font-mono text-gray-600 whitespace-nowrap">{r.oc_numero}</td>
                 <td className="px-4 py-2.5 w-52 max-w-[208px]">
@@ -428,10 +526,10 @@ export default function RecepcionesPage() {
             ))}
           </tbody>
         </table>
-      </div>
+       </div>
 
-      {/* Paginación */}
-      <div className="flex items-center justify-between px-6 py-2 border-t border-gray-200 bg-white flex-shrink-0 text-[12px] text-gray-500">
+       {/* Paginación */}
+       <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0 text-[12px] text-gray-500">
         <span>{Math.min((pagina - 1) * porPagina + 1, totalItems)}–{Math.min(pagina * porPagina, totalItems)} de {totalItems}</span>
         <div className="flex items-center gap-1">
           <button onClick={() => setPagina(1)} disabled={pagina === 1} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">«</button>
@@ -439,6 +537,7 @@ export default function RecepcionesPage() {
           <button onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">›</button>
           <button onClick={() => setPagina(totalPaginas)} disabled={pagina === totalPaginas} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">»</button>
         </div>
+       </div>
       </div>
 
       {/* ─── Modal crear / editar ───────────────────────────────────────────────── */}
@@ -655,9 +754,16 @@ export default function RecepcionesPage() {
                     Confirmar recepción
                   </button>
                 )}
+                {activo.asiento_id && (
+                  <button onClick={() => verAsiento(activo.id)} disabled={previewLoading}
+                    className="px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-md hover:bg-gray-50 disabled:opacity-40">
+                    {previewLoading ? "Cargando…" : "Ver asiento"}
+                  </button>
+                )}
                 {activo.estado === "confirmada" && (
                   <a href={`/recepcion/${activo.id}`} target="_blank" rel="noopener noreferrer"
-                    className="px-4 py-2 text-[12px] text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50">
+                    className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-medium text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                     Imprimir
                   </a>
                 )}
@@ -745,6 +851,8 @@ export default function RecepcionesPage() {
           </div>
         </div>
       )}
+
+      {preview && <AsientoModal data={preview} real onClose={() => setPreview(null)} />}
     </div>
   );
 }

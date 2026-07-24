@@ -6,6 +6,7 @@ import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
 import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import AsientoModal, { AsientoData } from "@/components/AsientoModal";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ interface CentroCosto {
 
 interface Concepto {
   id: string; codigo: string; nombre: string;
+  tarifa_iva_id: string | null;
   tarifa_iva_porcentaje: string | null;
   tarifa_iva_cuenta_compras_id: string | null;
   tarifa_iva_cuenta_compras_codigo: string | null;
@@ -49,6 +51,7 @@ interface Concepto {
   cuenta_gasto_nombre: string | null;
   retenciones: ConceptoRet[];
 }
+interface TarifaIva { id: string; nombre: string; porcentaje: string; cuenta_iva_compras_id: string | null; cuenta_iva_compras_codigo: string | null; }
 
 interface LineaRetForm {
   _key: string;
@@ -63,6 +66,7 @@ interface LineaForm {
   cuenta_gasto_id: string;
   descripcion: string;
   subtotal: string;
+  tarifa_iva_id: string;
   iva_pct: string;
   total_iva: string;
   total: string;
@@ -237,14 +241,17 @@ export default function FacturasProveedorPage() {
 
   // Filtros
   const [fEstado, setFEstado] = useState("");
-  const [fDesde, setFDesde]   = useState("");
-  const [fHasta, setFHasta]   = useState("");
+  const [fDesde, setFDesde]   = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [fHasta, setFHasta]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [fProvId, setFProvId] = useState("");
+  const [fProvDisplay, setFProvDisplay] = useState("");
   const [fPendientes, setFPendientes] = useState(false);
 
   // Catálogos
   const [monedas, setMonedas]     = useState<Moneda[]>([]);
   const [monedaFuncId, setMonedaFuncId] = useState("");
   const [conceptos, setConceptos] = useState<Concepto[]>([]);
+  const [tarifasIva, setTarifasIva] = useState<TarifaIva[]>([]);
   const [retCatalogo, setRetCatalogo]         = useState<RetCatalogo[]>([]);
   const [condicionesPago, setCondicionesPago] = useState<CondicionPago[]>([]);
   const [fCondicionPagoId, setFCondicionPagoId] = useState("");
@@ -257,7 +264,11 @@ export default function FacturasProveedorPage() {
   // Modal
   const [modo, setModo]     = useState<"crear" | "ver" | null>(null);
   const [activo, setActivo] = useState<Documento | null>(null);
+  const [preview, setPreview] = useState<AsientoData | null>(null);
+  const [previewReal, setPreviewReal] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editandoNumero, setEditandoNumero] = useState<string>("");
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
   const [modalAnular, setModalAnular]   = useState(false);
@@ -293,6 +304,8 @@ export default function FacturasProveedorPage() {
     }).catch(() => {});
     apiFetch<Concepto[]>("/conceptos/cxp?solo_activos=true")
       .then(setConceptos).catch(() => {});
+    apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true")
+      .then(setTarifasIva).catch(() => {});
     apiFetch<RetCatalogo[]>("/maestros/retenciones?solo_activas=true")
       .then((data) => setRetCatalogo(data.filter((r) => r.aplica_compra)))
       .catch(() => {});
@@ -311,13 +324,13 @@ export default function FacturasProveedorPage() {
       if (fEstado)     p.set("estado", fEstado);
       if (fDesde)      p.set("fecha_desde", fDesde);
       if (fHasta)      p.set("fecha_hasta", fHasta);
+      if (fProvId)     p.set("tercero_id", fProvId);
       if (fPendientes) p.set("solo_pendientes", "true");
       const res = await apiFetch<ListResponse>(`/cxp?${p}`);
       setLista(res.items); setTotalItems(res.total);
     } finally { setLoading(false); }
-  }, [fEstado, fDesde, fHasta, fPendientes]);
+  }, [fEstado, fDesde, fHasta, fProvId, fPendientes]);
 
-  useEffect(() => { setPagina(1); cargar(1); }, [fEstado, fDesde, fHasta, fPendientes]);
   useEffect(() => { cargar(pagina); }, [pagina]);
 
   // ── Gestión de líneas ──────────────────────────────────────────────────────
@@ -325,7 +338,7 @@ export default function FacturasProveedorPage() {
   function nuevaLinea(): LineaForm {
     return {
       _key: key(), concepto_id: "", concepto_display: "", cuenta_gasto_id: "",
-      descripcion: "", subtotal: "", iva_pct: "0", total_iva: "0", total: "0",
+      descripcion: "", subtotal: "", tarifa_iva_id: "", iva_pct: "0", total_iva: "0", total: "0",
       cuenta_iva_id: "", cuenta_iva_display: "", centro_costo_id: "", retenciones: [],
     };
   }
@@ -352,6 +365,7 @@ export default function FacturasProveedorPage() {
         ...l,
         concepto_id: c.id, concepto_display: `${c.codigo} — ${c.nombre}`,
         cuenta_gasto_id: c.cuenta_gasto_id ?? "",
+        tarifa_iva_id: c.tarifa_iva_id ?? "",
         iva_pct, total_iva: String(total_iva),
         total: String(sub + total_iva),
         // cuenta IVA viene de la tarifa configurada en el concepto
@@ -380,6 +394,20 @@ export default function FacturasProveedorPage() {
         }));
       }
       return updated;
+    }));
+  }
+
+  function seleccionarTarifaIva(k: string, tarifaId: string) {
+    const t = tarifasIva.find((x) => x.id === tarifaId);
+    setLineas((prev) => prev.map((l) => {
+      if (l._key !== k) return l;
+      const iva_pct = t ? String(t.porcentaje) : "0";
+      const sub = parseFloat(l.subtotal) || 0;
+      const total_iva = Math.round(sub * (parseFloat(iva_pct) || 0) / 100 * 10000) / 10000;
+      return {
+        ...l, tarifa_iva_id: tarifaId, iva_pct, total_iva: String(total_iva), total: String(sub + total_iva),
+        cuenta_iva_id: t?.cuenta_iva_compras_id ?? "", cuenta_iva_display: t?.cuenta_iva_compras_codigo ?? "",
+      };
     }));
   }
 
@@ -464,7 +492,7 @@ export default function FacturasProveedorPage() {
   }
 
   function abrirCrear() {
-    setEditandoId(null); setActivo(null);
+    setEditandoId(null); setEditandoNumero(""); setActivo(null);
     setFFecha(hoy); setFVencimiento(""); setFNumProv(""); setFDescripcion("");
     setFCondicionPagoId("");
     setFTerceroId(""); setFTerceroDisplay(""); setFMonedaId(monedaFuncId); setFTrm("");
@@ -476,6 +504,7 @@ export default function FacturasProveedorPage() {
     const doc = await apiFetch<Documento>(`/cxp/${item.id}`).catch(() => null);
     if (!doc) return;
     setEditandoId(doc.id);
+    setEditandoNumero(doc.numero ?? "");
     setFCondicionPagoId(doc.condicion_pago_id ?? "");
     setFFecha(doc.fecha);
     setFVencimiento(doc.fecha_vencimiento ?? "");
@@ -492,6 +521,7 @@ export default function FacturasProveedorPage() {
       cuenta_gasto_id: l.cuenta_id ?? "",
       descripcion: l.descripcion,
       subtotal: l.subtotal,
+      tarifa_iva_id: tarifasIva.find((t) => parseFloat(t.porcentaje) === parseFloat(l.iva_pct))?.id ?? "",
       iva_pct: l.iva_pct,
       total_iva: l.total_iva,
       total: l.total,
@@ -522,6 +552,22 @@ export default function FacturasProveedorPage() {
   }
 
   // ── Guardar ────────────────────────────────────────────────────────────────
+
+  async function verAsiento() {
+    setPreviewLoading(true); setError("");
+    try {
+      let d: AsientoData;
+      if (modo === "ver" && activo) {
+        d = await apiFetch<AsientoData>(`/cxp/${activo.id}/asiento`);
+        setPreviewReal(true);
+      } else {
+        d = await apiFetch<AsientoData>("/cxp/preview-asiento", { method: "POST", body: JSON.stringify(buildPayload()) });
+        setPreviewReal(false);
+      }
+      setPreview(d);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al obtener el asiento"); }
+    finally { setPreviewLoading(false); }
+  }
 
   function buildPayload() {
     return {
@@ -661,12 +707,28 @@ export default function FacturasProveedorPage() {
           <label className={lbl}>Hasta</label>
           <input type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
+        <div className="w-52">
+          <label className={lbl}>Proveedor</label>
+          {fProvId ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{fProvDisplay}</span>
+              <button onClick={() => { setFProvId(""); setFProvDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <TerceroSearch display="" onChange={(id, display) => { setFProvId(id); setFProvDisplay(display); }} />
+          )}
+        </div>
         <label className="flex items-center gap-2 text-[12px] text-gray-600 cursor-pointer pb-0.5">
           <input type="checkbox" checked={fPendientes} onChange={(e) => setFPendientes(e.target.checked)} className="rounded" />
           Solo con saldo pendiente
         </label>
-        {(fEstado || fDesde || fHasta || fPendientes) && (
-          <button onClick={() => { setFEstado(""); setFDesde(""); setFHasta(""); setFPendientes(false); }}
+        <button onClick={() => { setPagina(1); cargar(1); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
+        {(fEstado || fProvId || fPendientes) && (
+          <button onClick={() => { setFEstado(""); setFProvId(""); setFProvDisplay(""); setFPendientes(false); setTimeout(() => { setPagina(1); cargar(1); }, 0); }}
             className="text-[11px] text-gray-400 hover:text-gray-600 underline pb-0.5">Limpiar</button>
         )}
       </div>
@@ -698,7 +760,12 @@ export default function FacturasProveedorPage() {
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (
                   <tr key={d.id} className="hover:bg-gray-50/60 transition-colors">
-                    <td className="px-3 py-2.5 font-mono font-semibold text-blue-600">{d.numero}</td>
+                    <td className="px-3 py-2.5">
+                      <button onClick={() => d.estado === "borrador" ? abrirEditar(d) : abrirVer(d)}
+                        className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors">
+                        {d.numero}
+                      </button>
+                    </td>
                     <td className="px-3 py-2.5 font-mono text-gray-500 text-[11px]">{d.numero_proveedor ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
@@ -767,7 +834,7 @@ export default function FacturasProveedorPage() {
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <h2 className="text-[14px] font-semibold text-gray-800">
-                {editandoId ? "Editar factura de proveedor" : "Nueva factura de proveedor"}
+                {editandoId ? `Editar factura de proveedor${editandoNumero ? ` — ${editandoNumero}` : ""}` : "Nueva factura de proveedor"}
               </h2>
               <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -855,7 +922,7 @@ export default function FacturasProveedorPage() {
                         <th className="px-2 py-1.5 text-left w-44">Concepto</th>
                         <th className="px-2 py-1.5 text-left w-40">Descripción</th>
                         <th className="px-2 py-1.5 text-right w-28">Subtotal</th>
-                        <th className="px-2 py-1.5 text-right w-20">IVA %</th>
+                        <th className="px-2 py-1.5 text-left w-32">IVA</th>
                         <th className="px-2 py-1.5 text-right w-24">IVA $</th>
                         <th className="px-2 py-1.5 text-right w-28">Total línea</th>
                         <th className="w-6" />
@@ -891,8 +958,10 @@ export default function FacturasProveedorPage() {
                                 decimales={2} className={`${inpSm} text-right`} />
                             </td>
                             <td className="px-1 py-1">
-                              <MontoInput value={l.iva_pct} onChange={(v) => updLinea(l._key, { iva_pct: v })}
-                                decimales={2} placeholder="0" className={`${inpSm} text-right`} />
+                              <select value={l.tarifa_iva_id} onChange={(e) => seleccionarTarifaIva(l._key, e.target.value)} className={inpSm}>
+                                <option value="">Sin IVA</option>
+                                {tarifasIva.map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
+                              </select>
                             </td>
                             <td className="px-1 py-1 text-right font-mono text-gray-600 pr-2">{fmt(parseFloat(l.total_iva) || 0)}</td>
                             <td className="px-1 py-1 text-right font-mono font-semibold text-gray-800 pr-2">{fmt(parseFloat(l.total) || 0)}</td>
@@ -1007,6 +1076,10 @@ export default function FacturasProveedorPage() {
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
               <button onClick={cerrar} className="px-5 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white">Cancelar</button>
+              <button onClick={verAsiento} disabled={previewLoading || !fTerceroId || lineas.length === 0}
+                className="px-4 py-2 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-white disabled:opacity-40">
+                {previewLoading ? "Calculando…" : "Ver asiento"}
+              </button>
               <button onClick={() => guardar(false)} disabled={saving}
                 className="flex-1 py-2 border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 text-[12px] font-medium rounded-lg disabled:opacity-50">
                 {saving ? "Guardando..." : "Guardar borrador"}
@@ -1135,6 +1208,12 @@ export default function FacturasProveedorPage() {
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
               <button onClick={cerrar} className="px-5 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white">Cerrar</button>
+              {activo.estado === "contabilizado" && (
+                <button onClick={verAsiento} disabled={previewLoading}
+                  className="px-4 py-2 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-white disabled:opacity-40">
+                  {previewLoading ? "Cargando…" : "Ver asiento"}
+                </button>
+              )}
               {activo.estado === "borrador" && (
                 <button onClick={contabilizarDoc} disabled={saving}
                   className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
@@ -1143,7 +1222,8 @@ export default function FacturasProveedorPage() {
               )}
               {activo.estado === "contabilizado" && (
                 <button onClick={() => window.open(`/factura-proveedor/${activo.id}`, "_blank")}
-                  className="px-4 py-2 border border-blue-200 text-blue-600 hover:bg-blue-50 text-[12px] font-medium rounded-lg">
+                  className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                   Imprimir
                 </button>
               )}
@@ -1193,7 +1273,8 @@ export default function FacturasProveedorPage() {
                 Ahora no
               </button>
               <button onClick={() => { window.open(`/factura-proveedor/${idImprimir}`, "_blank"); setModalImprimir(false); }}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
               </button>
             </div>
@@ -1254,6 +1335,8 @@ export default function FacturasProveedorPage() {
           </div>
         </div>
       )}
+
+      {preview && <AsientoModal data={preview} real={previewReal} onClose={() => setPreview(null)} />}
     </div>
   );
 }

@@ -143,7 +143,7 @@ export default function OperacionesPage() {
           </svg>
           <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") cargar(); }}
-            placeholder="Buscar por número de operación..."
+            placeholder="Buscar por número o cliente..."
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
         <select value={estado} onChange={(e) => setEstado(e.target.value)}
@@ -199,14 +199,15 @@ export default function OperacionesPage() {
                 <Th campo="estado"   orden={orden} alternar={alternar} align="center">Estado</Th>
                 <Th campo="piezas"   orden={orden} alternar={alternar} align="right">Piezas</Th>
                 <Th campo="peso"     orden={orden} alternar={alternar} align="right">Peso kg</Th>
+                <th className="px-4 py-2.5 w-14"></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
               ) : filas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center">
+                  <td colSpan={8} className="px-4 py-10 text-center">
                     <p className="text-[12px] text-gray-400">No hay operaciones</p>
                     <p className="text-[11px] text-gray-300 mt-1">Las operaciones se crean al aprobar una cotización</p>
                   </td>
@@ -216,11 +217,11 @@ export default function OperacionesPage() {
                 const cot = cotsOp[0];
                 return (
                   <tr key={op.id}
-                    onClick={() => router.push(`/dashboard/operaciones/operaciones/${op.id}`)}
-                    className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 cursor-pointer transition-colors">
+                    className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-[12px] font-bold text-blue-700">{op.numero}</span>
+                        <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${op.id}`)}
+                          className="font-mono text-[12px] font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors">{op.numero}</button>
                         {cot && (
                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${TIPO_STYLE[cot.tipo_operacion] ?? "bg-gray-100 text-gray-500"}`}>
                             {cot.tipo_operacion === "IMPORTACION" ? "IMP" : "EXP"}
@@ -233,12 +234,16 @@ export default function OperacionesPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">
+                    <td className="px-4 py-3">
                       {op.clientes && op.clientes.length > 0 ? (
-                        op.clientes.length === 1 ? op.clientes[0].nombre : (
-                          <span>{op.clientes[0].nombre} <span className="text-[10px] text-gray-400 font-normal">+{op.clientes.length - 1}</span></span>
-                        )
-                      ) : <span className="text-gray-300">—</span>}
+                        <div className="flex flex-wrap gap-1">
+                          {op.clientes.map((cl) => (
+                            <span key={cl.id} className="text-[11px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                              {cl.nombre}
+                            </span>
+                          ))}
+                        </div>
+                      ) : <span className="text-gray-300 text-[12px]">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {cot ? (
@@ -260,6 +265,14 @@ export default function OperacionesPage() {
                     <td className="px-4 py-3 text-right text-[12px] text-gray-600">{op.piezas ?? "—"}</td>
                     <td className="px-4 py-3 text-right text-[12px] text-gray-600">
                       {op.peso_kg != null ? Number(op.peso_kg).toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end">
+                        <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${op.id}`)} title="Ver"
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

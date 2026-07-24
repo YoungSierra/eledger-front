@@ -85,6 +85,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [trmSaving, setTrmSaving]       = useState(false);
   const [trmError, setTrmError]         = useState("");
 
+  // Requerimientos (campana)
+  const [reqPendientes, setReqPendientes] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () =>
+      apiFetch<{ count: number }>("/requerimientos/pendientes-count")
+        .then((r) => { if (vivo) setReqPendientes(r.count); })
+        .catch(() => {});
+    cargar();
+    const t = setInterval(cargar, 60_000); // refresco cada 1 minuto
+    return () => { vivo = false; clearInterval(t); };
+  }, []);
+
   useEffect(() => {
     apiFetch<UsuarioActual>("/auth/me")
       .then((u) => {
@@ -401,6 +415,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Campana de requerimientos */}
+            <button
+              onClick={() => {
+                router.push("/dashboard/requerimientos");
+                window.dispatchEvent(new Event("requerimientos:abrir"));
+              }}
+              title="Requerimientos"
+              className="relative flex items-center justify-center w-6 h-6 rounded-full text-blue-600 hover:text-white hover:bg-blue-600 transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              {reqPendientes > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+                  {reqPendientes > 99 ? "99+" : reqPendientes}
+                </span>
+              )}
+            </button>
             {/* Badge TRM */}
             {trmExiste && trmValor && (
               <span className="flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
@@ -495,7 +525,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             <div className="px-5 py-4 space-y-3">
               <p className="text-[11px] text-gray-500">
-                No hay TRM registrada para hoy. El valor sugerido viene del Banco de la República.
+                No hay TRM registrada para hoy. Debes confirmarla para continuar; el valor sugerido viene del Banco de la República.
               </p>
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
@@ -524,13 +554,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Puedes modificar el valor si difiere de la tasa oficial. Quedará registrado con tu usuario.
               </p>
             </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex gap-2">
-              <button onClick={() => setTrmModal(false)}
-                className="flex-1 py-2 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                Después
-              </button>
+            <div className="px-5 py-3 border-t border-gray-100">
               <button onClick={guardarTrm} disabled={trmSaving || !trmInput}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
                 {trmSaving ? "Guardando..." : "Confirmar TRM"}
               </button>
             </div>

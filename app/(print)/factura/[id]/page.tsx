@@ -12,6 +12,7 @@ interface LineaResp {
   um_codigo: string | null; precio_unitario: string;
   descuento_pct: string; subtotal: string;
   iva_tipo: string; iva_pct: string; total_iva: string; total: string;
+  valor_tercero: boolean;
 }
 interface RetencionResp {
   tipo: string; concepto: string; base: string; porcentaje: string; valor: string;
@@ -55,7 +56,7 @@ function _cientos(n: number): string {
   if (n === 0) return "";
   if (n === 100) return "CIEN";
   const c = Math.floor(n / 100), resto = n % 100;
-  const sc = c > 0 ? C[c] : "";
+  const sc = c > 0 ? (c === 1 && resto > 0 ? "CIENTO" : C[c]) : "";
   if (resto === 0) return sc;
   const sr = resto <= 20 ? U[resto] : D[Math.floor(resto / 10)] + (resto % 10 ? " Y " + U[resto % 10] : "");
   return (sc ? sc + " " : "") + sr;
@@ -234,26 +235,63 @@ export default function PrintFactura() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5, marginBottom: 20 }}>
           <thead>
             <tr style={{ borderBottom: `2px solid ${s.thick}` }}>
-              {["Producto", "Cant.", "UM", "Precio unit.", "Subtotal", "IVA", "Total IVA", "Total"].map((h, i) => (
-                <th key={h} style={{ padding: "6px 8px", textAlign: i >= 3 ? "right" : i === 2 ? "left" : "left", fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>{h}</th>
+              {([
+                { h: factura.lineas.every(l => !l.producto_codigo && !l.producto_nombre) ? "Concepto" : "Producto", a: "left" },
+                { h: "Cant.", a: "right" },
+                { h: "UM", a: "left" },
+                { h: "Precio unit.", a: "right" },
+                { h: "Subtotal", a: "right" },
+                { h: "IVA", a: "left" },
+                { h: "Total IVA", a: "right" },
+                { h: "Total", a: "right" },
+              ] as const).map(c => (
+                <th key={c.h} style={{ padding: "6px 8px", textAlign: c.a, fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>{c.h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {factura.lineas.map(l => (
-              <tr key={l.id} style={{ borderBottom: `1px solid ${s.border}` }}>
-                <td style={{ padding: "5px 8px" }}>{l.descripcion}</td>
-                <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.cantidad)}</td>
-                <td style={{ padding: "5px 8px", color: s.mid }}>{l.um_codigo ?? ""}</td>
-                <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.precio_unitario)}</td>
-                <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.subtotal)}</td>
-                <td style={{ padding: "5px 8px", color: s.mid, fontSize: 10 }}>
-                  {l.iva_tipo !== "NINGUNO" ? `${l.iva_tipo.replace("GRAVADO_", "")}%` : "—"}
-                </td>
-                <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.total_iva)}</td>
-                <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(l.total)}</td>
-              </tr>
-            ))}
+            {(() => {
+              const filaLinea = (l: LineaResp) => (
+                <tr key={l.id} style={{ borderBottom: `1px solid ${s.border}` }}>
+                  <td style={{ padding: "5px 8px" }}>{l.descripcion}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.cantidad)}</td>
+                  <td style={{ padding: "5px 8px", color: s.mid }}>{l.um_codigo ?? ""}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.precio_unitario)}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.subtotal)}</td>
+                  <td style={{ padding: "5px 8px", color: s.mid, fontSize: 10 }}>
+                    {l.iva_tipo !== "NINGUNO" ? `${l.iva_tipo.replace("GRAVADO_", "")}%` : "—"}
+                  </td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.total_iva)}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(l.total)}</td>
+                </tr>
+              );
+              const cabecera = (titulo: string) => (
+                <tr key={titulo}>
+                  <td colSpan={8} style={{ padding: "6px 8px 3px", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: s.thick }}>{titulo}</td>
+                </tr>
+              );
+              const subtotalGrupo = (titulo: string, lns: LineaResp[]) => {
+                const sum = lns.reduce((a, l) => a + Number(l.subtotal), 0);
+                return (
+                  <tr key={titulo + "-sub"} style={{ borderBottom: `1.5px solid ${s.thick}` }}>
+                    <td colSpan={4} style={{ padding: "4px 8px", textAlign: "right", fontSize: 10, fontStyle: "italic", color: s.mid }}>{titulo}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(sum)}</td>
+                    <td colSpan={3} />
+                  </tr>
+                );
+              };
+              const terceros = factura.lineas.filter(l => l.valor_tercero);
+              const propias = factura.lineas.filter(l => !l.valor_tercero);
+              if (terceros.length === 0) return factura.lineas.map(filaLinea);
+              return [
+                cabecera("Pagos por Terceros"),
+                ...terceros.map(filaLinea),
+                subtotalGrupo("Total pagos a terceros", terceros),
+                cabecera("Ingresos Propios"),
+                ...propias.map(filaLinea),
+                subtotalGrupo("Total ingresos propios", propias),
+              ];
+            })()}
           </tbody>
         </table>
 

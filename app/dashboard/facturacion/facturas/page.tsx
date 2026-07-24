@@ -56,6 +56,9 @@ interface LineaForm {
   total: string;
   cuenta_ingreso_id: string; cuenta_ingreso_display: string;
   centro_costo_id: string;
+  cotizacion_linea_id?: string; monto_cotizacion?: string;
+  valor_tercero: boolean;
+  proveedor_id: string; proveedor_display: string;
 }
 
 interface LineaResp {
@@ -68,6 +71,9 @@ interface LineaResp {
   total: string;
   cuenta_ingreso_id: string | null; cuenta_ingreso_codigo: string | null; cuenta_ingreso_nombre: string | null;
   centro_costo_id: string | null; centro_costo_codigo: string | null;
+  cotizacion_linea_id: string | null; monto_cotizacion: string | null;
+  valor_tercero: boolean;
+  proveedor_id: string | null; proveedor_nombre: string | null;
 }
 
 interface RetencionResp {
@@ -76,11 +82,34 @@ interface RetencionResp {
   cuenta_id: string; cuenta_codigo: string | null; cuenta_nombre: string | null;
 }
 
+interface PreviewAsientoLinea {
+  cuenta_codigo: string | null; cuenta_nombre: string | null;
+  tercero_nombre: string | null; centro_costo: string | null;
+  debito: string; credito: string;
+}
+interface PreviewAsiento {
+  lineas: PreviewAsientoLinea[];
+  total_debito: string; total_credito: string;
+  cuadra: boolean; moneda_codigo: string | null; avisos: string[];
+  asiento_numero?: number | null;
+}
+
+interface CotFactLinea {
+  linea_id: string; descripcion: string; moneda: string; pendiente: string;
+  cuenta_ingreso_id: string | null; cuenta_ingreso_display: string | null;
+  tarifa_iva_id: string | null; iva_pct: string;
+  cuenta_iva_id: string | null; cuenta_iva_display: string | null;
+  um_id: string | null; um_codigo: string | null;
+  valor_tercero: boolean;
+  proveedor_id: string | null; proveedor_display: string | null;
+}
+
 interface Factura {
   id: string; numero: string;
   fecha: string; fecha_vencimiento: string;
   periodo_id: string;
   cliente_id: string; cliente_nit: string | null; cliente_nombre: string | null;
+  cotizacion_id: string | null; cotizacion_numero: string | null;
   moneda_id: string; moneda_codigo: string; trm: string | null;
   condicion_pago_id: string | null; condicion_pago_nombre: string | null;
   subtotal: string; total_descuentos: string; total_iva: string;
@@ -99,6 +128,9 @@ interface ListItem {
   total_retenciones: string; total: string;
   estado: "borrador" | "contabilizada" | "anulada";
   dias_vencimiento: number | null;
+  saldo: string | null;
+  pagada: boolean;
+  creado_en: string;
 }
 
 interface ListResponse { items: ListItem[]; total: number; pagina: number; por_pagina: number; }
@@ -138,12 +170,14 @@ function calcLinea(l: LineaForm): LineaForm {
 
 // ─── Buscadores ──────────────────────────────────────────────────────────────
 
-function TerceroSearch({ display, onChange, disabled = false }: {
+function TerceroSearch({ display, onChange, disabled = false, tipoTercero = "CLIENTE", placeholder }: {
   display: string; onChange: (id: string, label: string) => void; disabled?: boolean;
+  tipoTercero?: string | null; placeholder?: string;
 }) {
   const [q, setQ] = useState(display);
   const [opts, setOpts] = useState<Tercero[]>([]);
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const ref = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { setQ(display); }, [display]);
@@ -153,7 +187,12 @@ function TerceroSearch({ display, onChange, disabled = false }: {
     if (timer.current) clearTimeout(timer.current);
     if (val.length < 2) { setOpts([]); setOpen(false); return; }
     timer.current = setTimeout(async () => {
-      const r = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(val)}&tipo_tercero=CLIENTE&solo_activos=true`).catch(() => []);
+      const filtroTipo = tipoTercero ? `&tipo_tercero=${tipoTercero}` : "";
+      const r = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(val)}${filtroTipo}&solo_activos=true`).catch(() => []);
+      if (r.length > 0 && ref.current) {
+        const rect = ref.current.getBoundingClientRect();
+        setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 300) });
+      }
       setOpts(r.slice(0, 10)); setOpen(r.length > 0);
     }, 250);
   }
@@ -162,15 +201,16 @@ function TerceroSearch({ display, onChange, disabled = false }: {
     <div className="relative">
       <input ref={ref} value={q} onChange={e => buscar(e.target.value)} disabled={disabled}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Buscar cliente por NIT o nombre…" className={inp} />
+        placeholder={placeholder ?? "Buscar cliente por NIT o nombre…"} className={inp} />
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+        <div className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}>
           {opts.map(t => (
             <button key={t.id} type="button"
               onMouseDown={() => { setQ(`${t.nit} — ${t.razon_social}`); setOpen(false); onChange(t.id, `${t.nit} — ${t.razon_social}`); }}
-              className="w-full text-left px-3 py-2 text-[12px] hover:bg-blue-50">
-              <span className="font-mono text-blue-600 mr-2">{t.nit}</span>
-              <span className="text-gray-700">{t.razon_social}</span>
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors">
+              <span className="text-[11px] font-mono text-blue-600 mr-2">{t.nit}</span>
+              <span className="text-[11px] text-gray-700">{t.razon_social}</span>
             </button>
           ))}
         </div>
@@ -195,21 +235,21 @@ function CuentaSearch({ display, onChange, disabled = false }: {
     if (timer.current) clearTimeout(timer.current);
     if (!val.trim()) { setOpts([]); setOpen(false); return; }
     timer.current = setTimeout(async () => {
-      const data = await apiFetch<{ items: Cuenta[] }>(`/contabilidad/cuentas?busqueda=${encodeURIComponent(val)}&solo_movimiento=true&por_pagina=15`).catch(() => ({ items: [] }));
-      const items = data.items ?? [];
+      const items = await apiFetch<Cuenta[]>(`/cuentas?busqueda=${encodeURIComponent(val)}&solo_activas=true&solo_movimiento=true`).catch(() => []);
       if (items.length > 0 && ref.current) {
         const r = ref.current.getBoundingClientRect();
         setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 300) });
       }
-      setOpts(items); setOpen(items.length > 0);
+      setOpts(items.slice(0, 15)); setOpen(items.length > 0);
     }, 250);
   }
 
   return (
     <div className="relative">
       <input ref={ref} value={q} onChange={e => buscar(e.target.value)} disabled={disabled}
+        onFocus={e => e.target.select()}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Cód o nombre…" className={inpSm} />
+        placeholder="Buscar cuenta (cód o nombre)…" className={inpSm} />
       {open && (
         <div className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto"
           style={{ top: pos.top, left: pos.left, width: pos.width }}>
@@ -296,6 +336,8 @@ function Modal({
   const soloLectura = !!factura && factura.estado !== "borrador";
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<PreviewAsiento | null>(null);
 
   const monedaFuncional = monedas.find(m => m.es_funcional);
 
@@ -307,8 +349,19 @@ function Modal({
   );
   const [monedaId, setMonedaId] = useState(factura?.moneda_id ?? monedaFuncional?.id ?? "");
   const [trm, setTrm] = useState(factura?.trm ? String(factura.trm) : "");
+  const [trmFaltante, setTrmFaltante] = useState(false);
   const [condicionId, setCondicionId] = useState(factura?.condicion_pago_id ?? "");
   const [notas, setNotas] = useState(factura?.notas ?? "");
+  const [cotizacionId, setCotizacionId] = useState(factura?.cotizacion_id ?? "");
+  const [cotizacionNumero, setCotizacionNumero] = useState(factura?.cotizacion_numero ?? "");
+  // Picker "cargar desde cotización"
+  const [cargarOpen, setCargarOpen] = useState(false);
+  const [cotOpts, setCotOpts] = useState<{ id: string; numero: string }[]>([]);
+  const [cotSelId, setCotSelId] = useState("");
+  const [cotTrm, setCotTrm] = useState("0");
+  const [cotFactLineas, setCotFactLineas] = useState<CotFactLinea[]>([]);
+  const [cotMontos, setCotMontos] = useState<Record<string, { incluir: boolean; monto: string }>>({});
+  const [cargarError, setCargarError] = useState("");
   const [motivo, setMotivo] = useState("");
   const [showAnular, setShowAnular] = useState(false);
 
@@ -326,6 +379,66 @@ function Modal({
     }
   }
 
+  async function abrirCargarCotizacion() {
+    if (!clienteId) { setError("Selecciona primero el cliente para cargar sus cotizaciones"); return; }
+    setError(""); setCargarError(""); setCotSelId(""); setCotFactLineas([]); setCotMontos({});
+    try {
+      const cots = await apiFetch<{ id: string; numero: string }[]>(`/operaciones/cotizaciones?cliente_id=${clienteId}`);
+      setCotOpts(cots.map(c => ({ id: c.id, numero: c.numero })));
+    } catch { setCotOpts([]); }
+    setCargarOpen(true);
+  }
+
+  async function seleccionarCotizacion(cotId: string) {
+    setCargarError("");
+    try {
+      const excl = factura ? `?excluir_factura_id=${factura.id}` : "";
+      const data = await apiFetch<{ trm: string; lineas: (CotFactLinea & { pendiente: string })[] }>(`/operaciones/cotizaciones/${cotId}/facturacion${excl}`);
+      const pend = data.lineas.filter(l => parseFloat(l.pendiente) > 0);
+      setCotFactLineas(pend);
+      setCotTrm(data.trm ?? "0");
+      const m: Record<string, { incluir: boolean; monto: string }> = {};
+      pend.forEach(l => { m[l.linea_id] = { incluir: true, monto: l.pendiente }; });
+      setCotMontos(m);
+      setCotSelId(cotId);
+    } catch (e) { setCargarError(e instanceof Error ? e.message : "Error"); }
+  }
+
+  function aplicarCotizacion() {
+    const invCod = monedaSel?.codigo || "COP";
+    const trmN = parseFloat(cotTrm) || 0;
+    const conv = (v: number, from: string) => from === invCod ? v : (invCod === "USD" ? (trmN ? v / trmN : 0) : v * trmN);
+    const rnd = (x: number) => Math.round(x * 10 ** decs) / 10 ** decs;
+    const nuevas: LineaForm[] = cotFactLineas
+      .filter(l => cotMontos[l.linea_id]?.incluir && parseFloat(cotMontos[l.linea_id]?.monto || "0") > 0)
+      .map(l => {
+        const native = parseFloat(cotMontos[l.linea_id].monto);
+        const sub = rnd(conv(native, l.moneda));
+        const esTercero = l.valor_tercero;
+        const ivaPct = esTercero ? 0 : parseFloat(l.iva_pct || "0");
+        const totalIva = rnd(sub * ivaPct / 100);
+        return {
+          _key: key(), producto_id: "", producto_display: "",
+          descripcion: l.descripcion, cantidad: "1", um_id: l.um_id || "", um_display: l.um_codigo || "",
+          precio_unitario: String(sub), descuento_pct: "0", subtotal: String(sub),
+          tarifa_iva_id: esTercero ? "" : (l.tarifa_iva_id || ""), iva_tipo: ivaPct > 0 ? "GRAVADO" : "NINGUNO",
+          iva_pct: String(ivaPct), total_iva: String(totalIva),
+          cuenta_iva_id: esTercero ? "" : (l.cuenta_iva_id || ""), cuenta_iva_display: esTercero ? "" : (l.cuenta_iva_display || ""),
+          total: String(sub + totalIva),
+          cuenta_ingreso_id: l.cuenta_ingreso_id || "", cuenta_ingreso_display: l.cuenta_ingreso_display || "",
+          centro_costo_id: "",
+          cotizacion_linea_id: l.linea_id, monto_cotizacion: String(native),
+          valor_tercero: esTercero,
+          proveedor_id: l.proveedor_id || "", proveedor_display: l.proveedor_display || "",
+        };
+      });
+    if (nuevas.length === 0) { setCargarError("Selecciona al menos una línea con monto"); return; }
+    setLineas(nuevas);
+    setCotizacionId(cotSelId);
+    setCotizacionNumero(cotOpts.find(c => c.id === cotSelId)?.numero ?? "");
+    setCargarOpen(false);
+  }
+
   function lineaFromResp(l: LineaResp): LineaForm {
     return {
       _key: key(),
@@ -335,12 +448,20 @@ function Modal({
       cantidad: l.cantidad, um_id: l.um_id ?? "", um_display: l.um_codigo ?? "",
       precio_unitario: l.precio_unitario, descuento_pct: l.descuento_pct,
       subtotal: l.subtotal,
-      tarifa_iva_id: "", iva_tipo: l.iva_tipo, iva_pct: l.iva_pct, total_iva: l.total_iva,
+      tarifa_iva_id: parseFloat(l.iva_pct) > 0
+        ? (tarifasIva.find(t => parseFloat(t.porcentaje) === parseFloat(l.iva_pct))?.id ?? "")
+        : "",
+      iva_tipo: l.iva_tipo, iva_pct: l.iva_pct, total_iva: l.total_iva,
       cuenta_iva_id: l.cuenta_iva_id ?? "", cuenta_iva_display: l.cuenta_iva_codigo ?? "",
       total: l.total,
       cuenta_ingreso_id: l.cuenta_ingreso_id ?? "",
       cuenta_ingreso_display: l.cuenta_ingreso_codigo ? `${l.cuenta_ingreso_codigo} ${l.cuenta_ingreso_nombre ?? ""}` : "",
       centro_costo_id: l.centro_costo_id ?? "",
+      cotizacion_linea_id: l.cotizacion_linea_id ?? undefined,
+      monto_cotizacion: l.monto_cotizacion ?? undefined,
+      valor_tercero: l.valor_tercero ?? false,
+      proveedor_id: l.proveedor_id ?? "",
+      proveedor_display: l.proveedor_id ? (l.proveedor_nombre ?? "") : "",
     };
   }
 
@@ -353,12 +474,24 @@ function Modal({
       cuenta_iva_id: "", cuenta_iva_display: "",
       total: "0", cuenta_ingreso_id: "", cuenta_ingreso_display: "",
       centro_costo_id: "",
+      valor_tercero: false, proveedor_id: "", proveedor_display: "",
     };
   }
 
   const [lineas, setLineas] = useState<LineaForm[]>(
     factura ? factura.lineas.map(lineaFromResp) : [lineaVacia()]
   );
+
+  // Si las tarifas de IVA cargan después de abrir el modal, restaura el select
+  // de las líneas ya cargadas emparejando por porcentaje.
+  useEffect(() => {
+    if (!tarifasIva.length) return;
+    setLineas(prev => prev.map(l => {
+      if (l.tarifa_iva_id || parseFloat(l.iva_pct) <= 0) return l;
+      const t = tarifasIva.find(x => parseFloat(x.porcentaje) === parseFloat(l.iva_pct));
+      return t ? { ...l, tarifa_iva_id: t.id } : l;
+    }));
+  }, [tarifasIva]);
 
   function retFromResp(r: RetencionResp): RetencionForm {
     return {
@@ -374,17 +507,20 @@ function Modal({
   );
 
   const subtotal = lineas.reduce((s, l) => s + (parseFloat(l.subtotal) || 0), 0);
+  const subtotalPropio = lineas.filter(l => !l.valor_tercero).reduce((s, l) => s + (parseFloat(l.subtotal) || 0), 0);
+  const subtotalTercero = lineas.filter(l => l.valor_tercero).reduce((s, l) => s + (parseFloat(l.subtotal) || 0), 0);
   const totalIva = lineas.reduce((s, l) => s + (parseFloat(l.total_iva) || 0), 0);
   const totalRet = retenciones.reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
   const total = subtotal + totalIva - totalRet;
 
+  // La base de retención es solo el ingreso propio; los valores para terceros no retienen.
   useEffect(() => {
     if (retenciones.length === 0 || soloLectura) return;
     setRetenciones(prev => prev.map(r => {
-      const val = Math.round(subtotal * (parseFloat(r.porcentaje) || 0) / 100 * 10000) / 10000;
-      return { ...r, base: String(subtotal), valor: String(val) };
+      const val = Math.round(subtotalPropio * (parseFloat(r.porcentaje) || 0) / 100 * 10000) / 10000;
+      return { ...r, base: String(subtotalPropio), valor: String(val) };
     }));
-  }, [subtotal]);
+  }, [subtotalPropio]);
 
   function updateLinea(idx: number, changes: Partial<LineaForm>) {
     setLineas(prev => prev.map((l, i) => i !== idx ? l : calcLinea({ ...l, ...changes })));
@@ -452,6 +588,7 @@ function Modal({
     return {
       fecha, fecha_vencimiento: fechaVenc,
       cliente_id: clienteId,
+      cotizacion_id: cotizacionId || null,
       moneda_id: monedaId,
       trm: esExtranjera && trm ? trm : null,
       condicion_pago_id: condicionId || null,
@@ -467,6 +604,10 @@ function Modal({
         total: l.total,
         cuenta_ingreso_id: l.cuenta_ingreso_id || null,
         centro_costo_id: l.centro_costo_id || null,
+        cotizacion_linea_id: l.cotizacion_linea_id || null,
+        monto_cotizacion: l.monto_cotizacion || null,
+        valor_tercero: l.valor_tercero,
+        proveedor_id: l.valor_tercero ? (l.proveedor_id || null) : null,
       })),
       retenciones: retenciones.map(r => ({
         tipo: r.tipo, concepto: r.concepto,
@@ -476,9 +617,33 @@ function Modal({
     };
   }
 
+  function validarTerceros(): string | null {
+    const sinProv = lineas.find(l => l.valor_tercero && !l.proveedor_id);
+    if (sinProv) return `La línea "${sinProv.descripcion || "(sin descripción)"}" es valor para tercero: indica el proveedor.`;
+    return null;
+  }
+
+  async function verAsiento() {
+    setPreviewLoading(true); setError("");
+    try {
+      let p: PreviewAsiento;
+      if (soloLectura && factura) {
+        p = await apiFetch<PreviewAsiento>(`/facturacion/facturas/${factura.id}/asiento`);
+      } else {
+        p = await apiFetch<PreviewAsiento>("/facturacion/facturas/preview-asiento", {
+          method: "POST", body: JSON.stringify(buildPayload()),
+        });
+      }
+      setPreview(p);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al obtener el asiento"); }
+    finally { setPreviewLoading(false); }
+  }
+
   async function guardar() {
     if (!clienteId) { setError("Selecciona un cliente"); return; }
     if (!lineas.length) { setError("Agrega al menos una línea"); return; }
+    const errTer = validarTerceros();
+    if (errTer) { setError(errTer); return; }
     setSaving(true); setError("");
     try {
       if (factura) {
@@ -494,6 +659,8 @@ function Modal({
   async function contabilizar() {
     if (!clienteId) { setError("Selecciona un cliente"); return; }
     if (!lineas.length) { setError("Agrega al menos una línea"); return; }
+    const errTer = validarTerceros();
+    if (errTer) { setError(errTer); return; }
     setSaving(true); setError("");
     try {
       let id: string;
@@ -589,9 +756,12 @@ function Modal({
                   const nueva = e.target.value;
                   setMonedaId(nueva);
                   const seleccionada = monedas.find(m => m.id === nueva);
-                  if (seleccionada && !seleccionada.es_funcional && !trm) {
+                  if (seleccionada && !seleccionada.es_funcional) {
                     const data = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
-                    if (data?.existe && data.tasa) setTrm(parseFloat(data.tasa).toFixed(decimalesFuncional));
+                    if (data?.existe && data.tasa) { if (!trm) setTrm(parseFloat(data.tasa).toFixed(decimalesFuncional)); setTrmFaltante(false); }
+                    else setTrmFaltante(true);
+                  } else {
+                    setTrmFaltante(false);
                   }
                 }}>
                 {monedas.map(m => <option key={m.id} value={m.id}>{m.codigo} — {m.nombre}</option>)}
@@ -610,23 +780,48 @@ function Modal({
             </div>
           </div>
 
+          {trmFaltante && (
+            <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <svg className="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <p className="text-[11px] text-amber-700">
+                No hay TRM registrada para hoy. No es posible facturar en moneda extranjera hasta que el administrador la registre. Puedes cambiar a COP o volver más tarde.
+              </p>
+            </div>
+          )}
+
           {/* Líneas */}
           <div className="flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Líneas</span>
+              <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                Líneas{cotizacionNumero && <span className="ml-2 text-[10px] text-emerald-700 font-semibold normal-case">· Cotización {cotizacionNumero}</span>}
+              </span>
               {!soloLectura && (
-                <button type="button" onClick={() => setLineas(p => [...p, lineaVacia()])}
-                  className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">
-                  + Agregar línea
-                </button>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={abrirCargarCotizacion}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold">
+                    Cargar desde cotización
+                  </button>
+                  {!cotizacionId && (
+                    <button type="button" onClick={() => setLineas(p => [...p, lineaVacia()])}
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">
+                      + Agregar línea
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <div className="border border-gray-200 rounded-xl overflow-y-auto max-h-56">
               <table className="w-full min-w-[680px] text-[11px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 font-semibold text-[10px] uppercase tracking-wide">
-                    <th className="px-2 py-2 text-center" style={{ width: "20%" }}>Producto</th>
-                    <th className="px-2 py-2 text-center" style={{ width: "24%" }}>Descripción</th>
+                    {cotizacionId ? (
+                      <th className="px-2 py-2 text-center" colSpan={2} style={{ width: "44%" }}>Concepto</th>
+                    ) : (
+                      <>
+                        <th className="px-2 py-2 text-center" style={{ width: "20%" }}>Producto</th>
+                        <th className="px-2 py-2 text-center" style={{ width: "24%" }}>Descripción</th>
+                      </>
+                    )}
                     <th className="px-2 py-2 text-center w-20">Cantidad</th>
                     <th className="px-2 py-2 text-center w-16">UM</th>
                     <th className="px-2 py-2 text-center w-28">Precio unit.</th>
@@ -638,19 +833,31 @@ function Modal({
                     <Fragment key={l._key}>
                       {/* Fila 1 — comercial */}
                       <tr className="border-t border-gray-200 align-middle">
-                        <td className="px-2 pt-2 pb-0.5">
-                          {soloLectura
-                            ? <span className="text-blue-600 font-mono text-[10px]">{l.producto_display || "—"}</span>
-                            : <ProductoSearch display={l.producto_display} onChange={(p, d) => seleccionarProducto(idx, p, d)} />
-                          }
-                        </td>
-                        <td className="px-2 pt-2 pb-0.5">
-                          {soloLectura
-                            ? <span className="text-gray-800">{l.descripcion}</span>
-                            : <input value={l.descripcion} onChange={e => updateLinea(idx, { descripcion: e.target.value })}
-                                placeholder="Descripción…" className={inpSm} />
-                          }
-                        </td>
+                        {cotizacionId ? (
+                          <td colSpan={2} className="px-2 pt-2 pb-0.5">
+                            {soloLectura
+                              ? <span className="text-gray-800">{l.descripcion}</span>
+                              : <input value={l.descripcion} onChange={e => updateLinea(idx, { descripcion: e.target.value })}
+                                  placeholder="Concepto…" className={inpSm} />
+                            }
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-2 pt-2 pb-0.5">
+                              {soloLectura
+                                ? <span className="text-blue-600 font-mono text-[10px]">{l.producto_display || "—"}</span>
+                                : <ProductoSearch display={l.producto_display} onChange={(p, d) => seleccionarProducto(idx, p, d)} />
+                              }
+                            </td>
+                            <td className="px-2 pt-2 pb-0.5">
+                              {soloLectura
+                                ? <span className="text-gray-800">{l.descripcion}</span>
+                                : <input value={l.descripcion} onChange={e => updateLinea(idx, { descripcion: e.target.value })}
+                                    placeholder="Descripción…" className={inpSm} />
+                              }
+                            </td>
+                          </>
+                        )}
                         <td className="px-2 pt-2 pb-0.5">
                           {soloLectura
                             ? <span className="block text-right">{fmt(l.cantidad, 4)}</span>
@@ -681,17 +888,19 @@ function Modal({
                       </tr>
 
                       {/* Fila 2 — IVA | C.Costo | Sub | Total IVA | Total | ✕ */}
-                      <tr className="border-b border-gray-100">
+                      <tr className={((!soloLectura && !l.producto_id && l.descripcion.trim()) || (soloLectura && l.cuenta_ingreso_id)) ? "" : "border-b border-gray-100"}>
                         {/* IVA */}
                         <td className="px-2 pt-0.5 pb-2">
                           {soloLectura
-                            ? <span className="text-[10px] text-gray-400">{l.iva_tipo === "NINGUNO" ? "Sin IVA" : `IVA ${l.iva_tipo.replace("GRAVADO_", "")}%`}</span>
-                            : <select value={l.tarifa_iva_id} onChange={e => seleccionarTarifaIva(idx, e.target.value)} className={inpSm}>
-                                <option value="">Sin IVA</option>
-                                {tarifasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
-                              </select>
+                            ? <span className="text-[10px] text-gray-400">{l.valor_tercero ? "Tercero (sin IVA)" : (l.iva_tipo === "NINGUNO" ? "Sin IVA" : `IVA ${l.iva_tipo.replace("GRAVADO_", "")}%`)}</span>
+                            : l.valor_tercero
+                              ? <span className="text-[10px] text-amber-600">Sin IVA · valor para tercero</span>
+                              : <select value={l.tarifa_iva_id} onChange={e => seleccionarTarifaIva(idx, e.target.value)} className={inpSm}>
+                                  <option value="">Sin IVA</option>
+                                  {tarifasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
+                                </select>
                           }
-                          {!soloLectura && parseFloat(l.total_iva) > 0 && !l.cuenta_iva_id && (
+                          {!soloLectura && !l.valor_tercero && parseFloat(l.total_iva) > 0 && !l.cuenta_iva_id && (
                             <div className="mt-1">
                               <span className={lbl + " text-amber-600"}>Cta. IVA *</span>
                               <CuentaSearch display={l.cuenta_iva_display} onChange={(id, d) => updateLinea(idx, { cuenta_iva_id: id, cuenta_iva_display: d })} />
@@ -706,12 +915,6 @@ function Modal({
                                 onChange={(id) => updateLinea(idx, { centro_costo_id: id })}
                                 placeholder="Sin C. Costo" />
                           }
-                          {!soloLectura && !l.producto_id && l.descripcion.trim() && (
-                            <div className="mt-1">
-                              <span className={lbl + " text-amber-600"}>Cta. Ingresos *</span>
-                              <CuentaSearch display={l.cuenta_ingreso_display} onChange={(id, d) => updateLinea(idx, { cuenta_ingreso_id: id, cuenta_ingreso_display: d })} />
-                            </div>
-                          )}
                         </td>
                         {/* Subtotal */}
                         <td className="px-2 pt-0.5 pb-2 text-right text-gray-500 font-mono">{fmt(l.subtotal, decs)}</td>
@@ -727,6 +930,50 @@ function Modal({
                           )}
                         </td>
                       </tr>
+
+                      {/* Fila 3 — Cuenta de ingresos / valores tercero (ancha) */}
+                      {((!soloLectura && !l.producto_id && l.descripcion.trim()) || (soloLectura && (l.cuenta_ingreso_id || l.valor_tercero))) && (
+                        <tr className="border-b border-gray-100">
+                          <td colSpan={6} className="px-2 pb-2">
+                            {/* Check valor tercero */}
+                            {!soloLectura && (
+                              <label className="flex items-center gap-2 mb-1.5 cursor-pointer w-fit">
+                                <input type="checkbox" checked={l.valor_tercero}
+                                  onChange={e => updateLinea(idx, e.target.checked
+                                    ? { valor_tercero: true, tarifa_iva_id: "", iva_tipo: "NINGUNO", iva_pct: "0", cuenta_iva_id: "", cuenta_iva_display: "" }
+                                    : { valor_tercero: false })} />
+                                <span className="text-[11px] text-gray-600 font-medium">Valor recibido para tercero</span>
+                              </label>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 shrink-0">
+                                {l.valor_tercero ? "Cta. valores tercero" : "Cta. Ingresos"}
+                                {!soloLectura && !l.cuenta_ingreso_id && <span className="text-amber-600"> *</span>}
+                              </span>
+                              <div className="flex-1 max-w-md">
+                                {soloLectura
+                                  ? <span className="text-[11px] text-gray-600">{l.cuenta_ingreso_display || "—"}</span>
+                                  : <CuentaSearch display={l.cuenta_ingreso_display} onChange={(id, d) => updateLinea(idx, { cuenta_ingreso_id: id, cuenta_ingreso_display: d })} />}
+                              </div>
+                            </div>
+                            {/* Proveedor (obligatorio si es tercero) */}
+                            {l.valor_tercero && (
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 shrink-0">
+                                  Proveedor{!soloLectura && !l.proveedor_id && <span className="text-amber-600"> *</span>}
+                                </span>
+                                <div className="flex-1 max-w-md">
+                                  {soloLectura
+                                    ? <span className="text-[11px] text-gray-600">{l.proveedor_display || "—"}</span>
+                                    : <TerceroSearch display={l.proveedor_display} tipoTercero={null}
+                                        placeholder="Tercero al que se traslada (aduana, bodega)…"
+                                        onChange={(id, d) => updateLinea(idx, { proveedor_id: id, proveedor_display: d })} />}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
                     </Fragment>
                   ))}
                 </tbody>
@@ -806,9 +1053,23 @@ function Modal({
           {/* Totales */}
           <div className="flex justify-end shrink-0">
             <div className="w-64 space-y-1 text-[12px]">
-              <div className="flex justify-between text-gray-600">
-                <span>Subtotal</span><span className="font-mono">{fmt(subtotal, decs)}</span>
-              </div>
+              {subtotalTercero > 0 ? (
+                <>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Ingresos propios</span><span className="font-mono">{fmt(subtotalPropio, decs)}</span>
+                  </div>
+                  <div className="flex justify-between text-amber-700">
+                    <span>Pagos por terceros</span><span className="font-mono">{fmt(subtotalTercero, decs)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 border-t border-gray-100 pt-1">
+                    <span>Subtotal</span><span className="font-mono">{fmt(subtotal, decs)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-gray-600">
+                  <span>Subtotal</span><span className="font-mono">{fmt(subtotal, decs)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-gray-600">
                 <span>IVA</span><span className="font-mono">{fmt(totalIva, decs)}</span>
               </div>
@@ -853,7 +1114,8 @@ function Modal({
           <div className="flex gap-2">
             {factura?.estado === "contabilizada" && !showAnular && (
               <a href={`/factura/${factura.id}`} target="_blank" rel="noopener noreferrer"
-                className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
               </a>
             )}
@@ -861,13 +1123,17 @@ function Modal({
               className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
               {soloLectura ? "Cerrar" : "Cancelar"}
             </button>
+            <button onClick={verAsiento} disabled={previewLoading || !clienteId || !lineas.length}
+              className="px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-white disabled:opacity-40 transition-colors">
+              {previewLoading ? "Calculando…" : "Ver asiento"}
+            </button>
             {!soloLectura && (
               <>
-                <button onClick={guardar} disabled={saving}
+                <button onClick={guardar} disabled={saving || trmFaltante}
                   className="px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
                   {saving ? "Guardando…" : "Guardar borrador"}
                 </button>
-                <button onClick={contabilizar} disabled={saving}
+                <button onClick={contabilizar} disabled={saving || trmFaltante}
                   className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
                   {saving ? "Procesando…" : "Enviar y Contabilizar"}
                 </button>
@@ -876,6 +1142,139 @@ function Modal({
           </div>
         </div>
       </div>
+
+      {/* Modal: preview del asiento contable */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-xl shadow-xl flex flex-col"
+            style={{ resize: "both", overflow: "hidden", width: "min(95vw, 80rem)", height: "min(85vh, 34rem)", minWidth: "min(80rem, 95vw)", minHeight: "26rem", maxWidth: "97vw", maxHeight: "95vh" }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <h3 className="text-[16px] font-semibold text-gray-800">{soloLectura ? "Asiento contabilizado" : "Previsualización del asiento"}</h3>
+                {preview.asiento_numero != null && (
+                  <span className="text-[12px] font-mono font-semibold text-gray-500">N.º {preview.asiento_numero}</span>
+                )}
+                <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${preview.cuadra ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+                  {preview.cuadra ? "Cuadra ✓" : "Descuadra"}
+                </span>
+              </div>
+              <button onClick={() => setPreview(null)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              {preview.avisos.length > 0 && (
+                <div className="mb-4 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[12px] text-amber-700 space-y-1">
+                  {preview.avisos.map((a, i) => <p key={i}>⚠ {a}</p>)}
+                </div>
+              )}
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-500 text-[11px] uppercase">
+                    <th className="text-left px-3 py-2">Cuenta</th>
+                    <th className="text-left px-3 py-2">Tercero / C. Costo</th>
+                    <th className="text-right px-3 py-2">Débito</th>
+                    <th className="text-right px-3 py-2">Crédito</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.lineas.map((l, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-blue-600 mr-2">{l.cuenta_codigo ?? "—"}</span>
+                        <span className="text-gray-700">{l.cuenta_nombre}</span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500">
+                        {l.tercero_nombre}{l.centro_costo ? ` · ${l.centro_costo}` : ""}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.debito) > 0 ? fmt(l.debito, decs) : ""}</td>
+                      <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.credito) > 0 ? fmt(l.credito, decs) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-300 font-bold text-gray-900 text-[14px]">
+                    <td className="px-3 py-2.5" colSpan={2}>Totales ({preview.moneda_codigo})</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{fmt(preview.total_debito, decs)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{fmt(preview.total_credito, decs)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+              <p className="text-[11px] text-gray-400 mt-4">{soloLectura ? "Partidas realmente asentadas en contabilidad." : "Vista previa según lo que hay en pantalla. Aún no se ha contabilizado."}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Picker: cargar desde cotización (filtrado por el cliente de la factura) */}
+      {cargarOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl p-6 max-h-[90vh] flex flex-col">
+            <h3 className="text-[14px] font-semibold text-gray-800 mb-1">Cargar desde cotización</h3>
+            <p className="text-[11px] text-gray-400 mb-3">Cotizaciones del cliente seleccionado. Elige una y los conceptos a facturar.</p>
+            <div className="mb-3">
+              <label className={lbl}>Cotización</label>
+              <select value={cotSelId} onChange={e => e.target.value && seleccionarCotizacion(e.target.value)} className={inp}>
+                <option value="">Selecciona una cotización…</option>
+                {cotOpts.map(c => <option key={c.id} value={c.id}>{c.numero}</option>)}
+              </select>
+            </div>
+            {cotSelId && (
+              <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg">
+                {cotFactLineas.length === 0 ? (
+                  <p className="text-[12px] text-gray-400 text-center py-6">No hay conceptos pendientes por facturar.</p>
+                ) : (
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr className="text-left text-[9px] uppercase text-gray-500">
+                        <th className="px-2 py-1.5 w-8 text-center">
+                          <input type="checkbox" title="Marcar/desmarcar todo"
+                            checked={cotFactLineas.length > 0 && cotFactLineas.every(l => cotMontos[l.linea_id]?.incluir)}
+                            onChange={e => { const v = e.target.checked; setCotMontos(p => { const n = { ...p }; cotFactLineas.forEach(l => { n[l.linea_id] = { ...n[l.linea_id], incluir: v }; }); return n; }); }}
+                            className="accent-blue-600" />
+                        </th>
+                        <th className="px-2 py-1.5">Concepto</th>
+                        <th className="px-2 py-1.5 text-right">Pendiente</th>
+                        <th className="px-2 py-1.5 text-right w-44">Monto a facturar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cotFactLineas.map(l => (
+                        <tr key={l.linea_id} className="border-t border-gray-50">
+                          <td className="px-2 py-1.5">
+                            <input type="checkbox" checked={cotMontos[l.linea_id]?.incluir ?? false}
+                              onChange={e => setCotMontos(p => ({ ...p, [l.linea_id]: { ...p[l.linea_id], incluir: e.target.checked } }))}
+                              className="accent-blue-600" />
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-700">
+                            {l.descripcion}
+                            {!l.cuenta_ingreso_id && <span className="ml-1 text-[9px] text-amber-600">(concepto sin cuenta de ingreso)</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono text-gray-500">{l.moneda} {parseFloat(l.pendiente).toLocaleString("es-CO", { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            <MontoInput value={cotMontos[l.linea_id]?.monto ?? ""} decimales={2}
+                              onChange={v => setCotMontos(p => ({ ...p, [l.linea_id]: { ...p[l.linea_id], monto: v } }))}
+                              className="w-40 px-2 py-1 border border-gray-200 rounded text-[11px] text-right" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+            {cargarError && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mt-3">{cargarError}</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" onClick={() => setCargarOpen(false)}
+                className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button type="button" onClick={aplicarCotizacion} disabled={!cotSelId || cotFactLineas.length === 0}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                Cargar líneas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -895,8 +1294,10 @@ export default function FacturasPage() {
   >("fecha", "desc");
 
   const [fEstado, setFEstado] = useState("");
-  const [fDesde, setFDesde] = useState("");
-  const [fHasta, setFHasta] = useState("");
+  const [fDesde, setFDesde] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [fHasta, setFHasta] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fClienteId, setFClienteId] = useState("");
+  const [fClienteDisplay, setFClienteDisplay] = useState("");
 
   const [monedas, setMonedas] = useState<Moneda[]>([]);
   const [condiciones, setCondiciones] = useState<CondicionPago[]>([]);
@@ -915,14 +1316,14 @@ export default function FacturasPage() {
       if (fEstado) p.set("estado", fEstado);
       if (fDesde)  p.set("fecha_desde", fDesde);
       if (fHasta)  p.set("fecha_hasta", fHasta);
+      if (fClienteId) p.set("cliente_id", fClienteId);
       const data = await apiFetch<ListResponse>(`/facturacion/facturas?${p}`);
       setLista(data.items);
       setTotalItems(data.total);
     } finally { setLoading(false); }
-  }, [pagina, fEstado, fDesde, fHasta]);
+  }, [pagina, fEstado, fDesde, fHasta, fClienteId]);
 
   useEffect(() => { cargar(pagina); }, [pagina]);
-  useEffect(() => { setPagina(1); cargar(1); }, [fEstado, fDesde, fHasta]);
 
   useEffect(() => {
     apiFetch<Moneda[]>("/maestros/monedas").then(setMonedas).catch(() => {});
@@ -931,6 +1332,15 @@ export default function FacturasPage() {
     apiFetch<CentroCosto[]>("/centros-costo?plano=true").then(setCentrosCosto).catch(() => {});
     apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {});
     apiFetch<RetCatalogo[]>("/maestros/retenciones?solo_activas=true").then(d => setRetCatalogo(d.filter(c => c.aplica_venta))).catch(() => {});
+  }, []);
+
+  // Al llegar con ?factura=<id> (p. ej. desde "Facturar" en operaciones), abre esa factura en edición.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("factura");
+    if (!id) return;
+    apiFetch<Factura>(`/facturacion/facturas/${id}`)
+      .then((d) => { setActiva(d); setModo(d.estado === "borrador" ? "editar" : "ver"); })
+      .catch(() => {});
   }, []);
 
   async function abrirEditar(item: ListItem) {
@@ -946,7 +1356,7 @@ export default function FacturasPage() {
   // El backend pagina; se ordena la página cargada antes de pintarla.
   const ordenada = ordenarFilas(lista, orden, {
     numero:      (d) => d.numero,
-    fecha:       (d) => d.fecha,
+    fecha:       (d) => `${d.fecha} ${d.creado_en}`,
     vencimiento: (d) => d.fecha_vencimiento,
     cliente:     (d) => d.cliente_nombre,
     subtotal:    (d) => Number(d.subtotal),
@@ -996,6 +1406,22 @@ export default function FacturasPage() {
           <input type="date" value={fHasta} onChange={e => setFHasta(e.target.value)}
             className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
+        <div className="w-52">
+          <label className={lbl}>Cliente</label>
+          {fClienteId ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{fClienteDisplay}</span>
+              <button onClick={() => { setFClienteId(""); setFClienteDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <TerceroSearch display="" onChange={(id, label) => { setFClienteId(id); setFClienteDisplay(label); }} />
+          )}
+        </div>
+        <button onClick={() => { setPagina(1); cargar(1); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
         {(fEstado || fDesde || fHasta) && (
           <button onClick={() => { setFEstado(""); setFDesde(""); setFHasta(""); }}
             className="text-[11px] text-gray-400 hover:text-gray-600 underline pb-0.5">Limpiar</button>
@@ -1029,17 +1455,29 @@ export default function FacturasPage() {
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (
                   <tr key={d.id} className="hover:bg-gray-50/60 transition-colors">
-                    <td className="px-3 py-2.5 font-mono font-semibold text-blue-600">{d.numero}</td>
+                    <td className="px-3 py-2.5">
+                      <button onClick={() => d.estado === "borrador" ? abrirEditar(d) : abrirVer(d)}
+                        className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors">
+                        {d.numero}
+                      </button>
+                    </td>
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className={`text-[11px] font-medium ${vencida ? "text-red-600" : porVencer ? "text-amber-600" : "text-gray-500"}`}>
-                        {d.fecha_vencimiento}
-                        {d.dias_vencimiento !== null && (
-                          <span className="ml-1 text-[10px]">
-                            {vencida ? `(${Math.abs(d.dias_vencimiento)}d venc.)` : `(${d.dias_vencimiento}d)`}
-                          </span>
-                        )}
-                      </span>
+                      {d.pagada ? (
+                        <span className="text-[11px] font-medium text-green-600">
+                          {d.fecha_vencimiento}
+                          <span className="ml-1 text-[10px]">(pagada)</span>
+                        </span>
+                      ) : (
+                        <span className={`text-[11px] font-medium ${vencida ? "text-red-600" : porVencer ? "text-amber-600" : "text-gray-500"}`}>
+                          {d.fecha_vencimiento}
+                          {d.dias_vencimiento !== null && (
+                            <span className="ml-1 text-[10px]">
+                              {vencida ? `(${Math.abs(d.dias_vencimiento)}d venc.)` : `(${d.dias_vencimiento}d)`}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 max-w-[180px]">
                       <div className="font-medium text-gray-800 truncate">{d.cliente_nombre ?? "—"}</div>

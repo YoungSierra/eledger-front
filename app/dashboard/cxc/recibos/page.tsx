@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import AsientoModal, { AsientoData } from "@/components/AsientoModal";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -128,6 +129,10 @@ export default function RecibosPage() {
   const [total, setTotal]       = useState(0);
   const [pagina, setPagina]     = useState(1);
   const POR_PAGINA = 50;
+  const [fDesde, setFDesde]     = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [fHasta, setFHasta]     = useState(() => new Date().toISOString().slice(0, 10));
+  const [fClienteId, setFClienteId]         = useState("");
+  const [fClienteDisplay, setFClienteDisplay] = useState("");
   const { orden, alternar } = useOrden<
     "numero" | "fecha" | "cliente" | "total" | "estado"
   >("fecha", "desc");
@@ -138,6 +143,9 @@ export default function RecibosPage() {
   const [reciboEstado, setReciboEstado]     = useState<string>("");
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [soloLectura, setSoloLectura]       = useState(false);
+  const [preview, setPreview]               = useState<AsientoData | null>(null);
+  const [previewReal, setPreviewReal]       = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving]                 = useState(false);
   const [contabilizando, setContabilizando] = useState(false);
   const [error, setError]                   = useState("");
@@ -169,10 +177,14 @@ export default function RecibosPage() {
 
   const cargar = useCallback(async (p = pagina) => {
     try {
-      const r = await apiFetch<ListResponse>(`/cxc?tipo=RECIBO&pagina=${p}&por_pagina=${POR_PAGINA}`);
+      const qs = new URLSearchParams({ tipo: "RECIBO", pagina: String(p), por_pagina: String(POR_PAGINA) });
+      if (fDesde) qs.set("fecha_desde", fDesde);
+      if (fHasta) qs.set("fecha_hasta", fHasta);
+      if (fClienteId) qs.set("tercero_id", fClienteId);
+      const r = await apiFetch<ListResponse>(`/cxc?${qs}`);
       setRows(r.items); setTotal(r.total); setPagina(p);
     } catch {}
-  }, [pagina]);
+  }, [pagina, fDesde, fHasta, fClienteId]);
 
   useEffect(() => {
     cargar(1);
@@ -420,6 +432,24 @@ export default function RecibosPage() {
     };
   }
 
+  async function verAsiento() {
+    setPreviewLoading(true); setError("");
+    try {
+      let d: AsientoData;
+      if (soloLectura && reciboId) {
+        d = await apiFetch<AsientoData>(`/cxc/${reciboId}/asiento`);
+        setPreviewReal(true);
+      } else {
+        const apls = aplicaciones.filter(a => (a.checked || dec(a.valor) > 0));
+        const rets = retenciones.filter(r => dec(r.base) > 0);
+        d = await apiFetch<AsientoData>("/cxc/recibo/preview-asiento", { method: "POST", body: JSON.stringify(buildPayload(apls, rets)) });
+        setPreviewReal(false);
+      }
+      setPreview(d);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al obtener el asiento"); }
+    finally { setPreviewLoading(false); }
+  }
+
   async function guardarInterno(): Promise<string | null> {
     if (!terceroId) { setError("Selecciona un cliente"); return null; }
     if (!banCuentaId) { setError("Selecciona la cuenta bancaria"); return null; }
@@ -471,10 +501,40 @@ export default function RecibosPage() {
           <h1 className="text-[15px] font-semibold text-gray-800">Recibos de caja</h1>
           <p className="text-[11px] text-gray-400 mt-0.5">Pagos recibidos de clientes aplicados a facturas</p>
         </div>
-        <button onClick={abrirModal}
+        <button onClick={() => abrirModal()}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Nuevo recibo
+        </button>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-56">
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Cliente</label>
+          {fClienteId ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{fClienteDisplay}</span>
+              <button onClick={() => { setFClienteId(""); setFClienteDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <TerceroSearch display="" onChange={(id, label) => { setFClienteId(id); setFClienteDisplay(label); }} />
+          )}
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Desde</label>
+          <input type="date" value={fDesde} onChange={e => setFDesde(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Hasta</label>
+          <input type="date" value={fHasta} onChange={e => setFHasta(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <button onClick={() => cargar(1)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
         </button>
       </div>
 
@@ -497,7 +557,12 @@ export default function RecibosPage() {
             )}
             {ordenada.map(r => (
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                <td className="px-3 py-2.5 font-mono text-[11px] text-blue-700">{r.numero}</td>
+                <td className="px-3 py-2.5">
+                  <button onClick={() => abrirDetalle(r)}
+                    className="font-mono text-[11px] text-blue-700 hover:text-blue-900 hover:underline transition-colors">
+                    {r.numero}
+                  </button>
+                </td>
                 <td className="px-3 py-2.5 text-gray-600">{r.fecha}</td>
                 <td className="px-3 py-2.5">
                   <p className="text-gray-800 font-medium truncate max-w-[220px]">{r.tercero_nombre}</p>
@@ -827,8 +892,12 @@ export default function RecibosPage() {
                       className="px-4 py-2 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
                       Cerrar
                     </button>
+                    <button onClick={verAsiento} disabled={previewLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors">
+                      {previewLoading ? "Cargando…" : "Ver asiento"}
+                    </button>
                     <button onClick={() => window.open(`/recibo/${reciboId}`, "_blank")}
-                      className="px-5 py-2 bg-gray-700 hover:bg-gray-800 text-white text-[12px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                       Imprimir
                     </button>
@@ -838,6 +907,10 @@ export default function RecibosPage() {
                     <button onClick={cerrarModal} disabled={saving || contabilizando}
                       className="px-4 py-2 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
                       Cancelar
+                    </button>
+                    <button onClick={verAsiento} disabled={previewLoading || !terceroId || !banCuentaId}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors">
+                      {previewLoading ? "Calculando…" : "Ver asiento"}
                     </button>
                     <button onClick={guardar} disabled={saving || contabilizando || !reciboCuadra || !terceroId || !banCuentaId}
                       className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
@@ -872,7 +945,7 @@ export default function RecibosPage() {
                 Ahora no
               </button>
               <button onClick={() => { window.open(`/recibo/${printId}`, "_blank"); setPrintId(null); }}
-                className="px-4 py-2 text-[12px] bg-gray-700 hover:bg-gray-800 text-white font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="flex items-center gap-1.5 px-4 py-2 text-[12px] border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 transition-colors">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
               </button>
@@ -880,6 +953,8 @@ export default function RecibosPage() {
           </div>
         </div>
       )}
+
+      {preview && <AsientoModal data={preview} real={previewReal} onClose={() => setPreview(null)} />}
     </div>
   );
 }

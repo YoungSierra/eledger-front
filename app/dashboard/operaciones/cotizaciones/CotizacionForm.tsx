@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { AvisoTrmFaltante } from "@/components/AvisoTrmFaltante";
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
 interface Tercero    { id: string; nit: string; razon_social: string; }
 interface Aerolinea  { id: string; codigo_iata: string; nombre: string; }
-interface Concepto   { id: string; nombre: string; seccion: string; tipo_calculo: string; moneda: string; }
+interface Concepto   { id: string; nombre: string; seccion: string; tipo_calculo: string; moneda: string; es_valor_tercero?: boolean; }
 
 interface Linea {
   id?: string;
@@ -25,6 +26,7 @@ interface Linea {
   total_costo: number;
   moneda: string;
   proveedor_id: string | null;
+  valor_tercero: boolean;
   condiciones_costo: string;
   notas: string;
   _proveedor_nombre?: string;
@@ -45,6 +47,7 @@ interface CotizacionDetalle {
   piezas: number | null;
   peso_kg: number | null;
   valor_mercancia: number | null;
+  valor_cif: number | null;
   moneda_mercancia: string;
   trm: number | null;
   notas: string | null;
@@ -177,6 +180,54 @@ function filterDecimal(raw: string): string {
   return dot === -1 ? s : s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "");
 }
 
+function TerceroSearch({ display, onChange }: {
+  display: string; onChange: (id: string | null, label: string) => void;
+}) {
+  const [q, setQ] = useState(display);
+  const [opts, setOpts] = useState<Tercero[]>([]);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const ref = useRef<HTMLInputElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { setQ(display); }, [display]);
+
+  async function buscar(val: string) {
+    setQ(val);
+    if (!val.trim()) onChange(null, "");   // limpiar proveedor
+    if (timer.current) clearTimeout(timer.current);
+    if (val.length < 2) { setOpts([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      const r = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(val)}&solo_activos=true`).catch(() => []);
+      if (r.length > 0 && ref.current) {
+        const rect = ref.current.getBoundingClientRect();
+        setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 300) });
+      }
+      setOpts(r.slice(0, 10)); setOpen(r.length > 0);
+    }, 250);
+  }
+
+  return (
+    <div className="relative">
+      <input ref={ref} value={q} onChange={(e) => buscar(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Buscar tercero por NIT o nombre…" className={inputCls} />
+      {open && (
+        <div className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}>
+          {opts.map((t) => (
+            <button key={t.id} type="button"
+              onMouseDown={() => { const lbl = `${t.nit} — ${t.razon_social}`; setQ(lbl); setOpen(false); onChange(t.id, lbl); }}
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors">
+              <span className="text-[11px] font-mono text-blue-600 mr-2">{t.nit}</span>
+              <span className="text-[11px] text-gray-700">{t.razon_social}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, conceptos, onGuardar, onCerrar }: {
   seccion: string;
   linea: Linea | null;
@@ -199,7 +250,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
     seccion, orden: 0, concepto_id: null, descripcion: "", tipo_calculo: "POR_EMBARQUE",
     valor_unitario: 0, costo_unitario: 0, base: baseDefault, minimo: null,
     total_venta: 0, total_costo: 0, moneda: "USD",
-    proveedor_id: null, condiciones_costo: "", notas: "", _proveedor_nombre: "",
+    proveedor_id: null, valor_tercero: false, condiciones_costo: "", notas: "", _proveedor_nombre: "",
   });
 
   // Strings de display para campos numéricos — evita que "0." se convierta a "0" al parsear
@@ -216,6 +267,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
     setForm((p) => ({
       ...p, concepto_id: id, descripcion: c.nombre,
       tipo_calculo: c.tipo_calculo, moneda: c.moneda,
+      valor_tercero: c.es_valor_tercero ?? false,
     }));
   }
 
@@ -344,9 +396,19 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
           {/* Proveedor y condiciones */}
           <div>
             <label className={labelCls}>Proveedor (opcional)</label>
-            <input className={inputCls} value={form._proveedor_nombre ?? ""} placeholder="Nombre del proveedor"
-              onChange={(e) => setForm((p) => ({ ...p, _proveedor_nombre: e.target.value }))} />
+            <TerceroSearch
+              display={form._proveedor_nombre ?? ""}
+              onChange={(id, label) => setForm((p) => ({ ...p, proveedor_id: id, _proveedor_nombre: label }))} />
+            <p className="text-[10px] text-gray-400 mt-1">Tercero al que se traslada el costo de este concepto (ej. aduana). Deja vacío si es ingreso propio de Universal.</p>
           </div>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={form.valor_tercero}
+              onChange={(e) => setForm((p) => ({ ...p, valor_tercero: e.target.checked }))} />
+            <span>
+              <span className="text-[12px] text-gray-700 font-medium">Valor recibido para tercero</span>
+              <span className="block text-[10px] text-gray-400">Opcional. El facturador lo confirma al facturar. Si se marca, no genera ingreso propio ni IVA: se traslada al tercero.</span>
+            </span>
+          </label>
           <div>
             <label className={labelCls}>Condiciones / instrucción operativa</label>
             <textarea rows={2} className={inputCls + " resize-none"}
@@ -384,6 +446,7 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [aerolineas, setAerolineas]   = useState<Aerolinea[]>([]);
   const [conceptos, setConceptos]     = useState<Concepto[]>([]);
   const [asesores, setAsesores]       = useState<{id:string;nombre:string;apellido:string}[]>([]);
+  const [menuEnviada, setMenuEnviada] = useState(false);
 
   // Encabezado
   const [clienteId, setClienteId]     = useState("");
@@ -402,6 +465,8 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [monedaMercancia, setMonedaMercancia] = useState("USD");
   const [valorCif, setValorCif]           = useState("");
   const [trm, setTrm]                 = useState("");
+  const [trmFaltante, setTrmFaltante] = useState(false);
+  const [trmChecking, setTrmChecking] = useState(id === "nueva");
   const [notas, setNotas]             = useState(
     "Sujeto a disponibilidad de espacios\n" +
     "Los gastos de puerto son aprox, los mismos se facturan contra soporte de puerto\n" +
@@ -467,7 +532,10 @@ export default function CotizacionForm({ id }: { id: string }) {
     try {
       const data = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
       if (data?.existe && data.tasa) setTrm(parseFloat(data.tasa).toFixed(2));
+      // La cotización nueva requiere la TRM del día para precargar/calcular.
+      if (isNueva && !data?.existe) setTrmFaltante(true);
     } catch {}
+    finally { setTrmChecking(false); }
   }
 
   async function cargarCotizacion() {
@@ -502,7 +570,7 @@ export default function CotizacionForm({ id }: { id: string }) {
     const agrupadas: Record<string, Linea[]> = {};
     for (const l of data.lineas) {
       if (!agrupadas[l.seccion]) agrupadas[l.seccion] = [];
-      agrupadas[l.seccion].push(l);
+      agrupadas[l.seccion].push({ ...l, _proveedor_nombre: (l as any).proveedor_nombre ?? "" });
     }
     setLineas(agrupadas);
   }
@@ -519,6 +587,7 @@ export default function CotizacionForm({ id }: { id: string }) {
   const trmN = parseFloat(trm) || 1;
   let totalVentaCOP = 0, totalCostoCOP = 0;
   Object.values(lineas).flat().forEach((l) => {
+    if (l.valor_tercero) return;   // los valores para terceros no son ingreso propio: no cuentan en el margen
     const factor = l.moneda === "USD" ? trmN : 1;
     totalVentaCOP += l.total_venta * factor;
     totalCostoCOP += l.total_costo * factor;
@@ -568,6 +637,7 @@ export default function CotizacionForm({ id }: { id: string }) {
       minimo: l.minimo,
       moneda: l.moneda,
       proveedor_id: l.proveedor_id ?? null,
+      valor_tercero: l.valor_tercero ?? false,
       condiciones_costo: l.condiciones_costo || null,
       notas: l.notas || null,
     };
@@ -708,6 +778,25 @@ export default function CotizacionForm({ id }: { id: string }) {
     }
   }
 
+  if (isNueva && (trmChecking || trmFaltante)) {
+    return (
+      <div className="flex flex-col" style={{ height: "calc(100vh - 88px)" }}>
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-200 shrink-0">
+          <button onClick={() => router.push("/dashboard/operaciones/cotizaciones")}
+            className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 transition-colors">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+            Cotizaciones
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          {trmChecking
+            ? <span className="text-[12px] text-gray-400">Verificando TRM del día…</span>
+            : <AvisoTrmFaltante onVolver={() => router.push("/dashboard/operaciones/cotizaciones")} />}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 88px)" }}>
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
@@ -742,19 +831,34 @@ export default function CotizacionForm({ id }: { id: string }) {
           {!isNueva && editable && cotizacionId && (
             <button onClick={() => cambiarEstado("enviar")} disabled={saving}
               className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
-              Enviar al cliente
+              Marcar como enviada
             </button>
           )}
           {!isNueva && estado === "ENVIADA" && cotizacionId && (
             <>
-              <button onClick={() => cambiarEstado("reabrir")} disabled={saving}
-                className="px-4 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-700 text-[12px] font-medium rounded-lg">
-                Reabrir
-              </button>
               <button onClick={abrirAprobar} disabled={saving}
                 className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">Aprobar</button>
-              <button onClick={() => cambiarEstado("rechazar")} disabled={saving}
-                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">Rechazar</button>
+              <div className="relative">
+                <button onClick={() => setMenuEnviada(!menuEnviada)} disabled={saving} title="Más acciones"
+                  className="px-2 py-1.5 border border-gray-200 text-blue-600 hover:bg-gray-50 disabled:opacity-50 text-[15px] leading-none rounded-lg transition-colors">
+                  ⋮
+                </button>
+                {menuEnviada && (
+                  <>
+                    <div onClick={() => setMenuEnviada(false)} className="fixed inset-0 z-40" />
+                    <div className="absolute right-0 top-[115%] z-40 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[150px] overflow-hidden">
+                      <button onClick={() => { setMenuEnviada(false); cambiarEstado("reabrir"); }}
+                        className="block w-full text-left px-3 py-2 text-[12px] text-blue-600 hover:bg-gray-50">
+                        Reabrir
+                      </button>
+                      <button onClick={() => { setMenuEnviada(false); cambiarEstado("rechazar"); }}
+                        className="block w-full text-left px-3 py-2 text-[12px] text-red-600 hover:bg-gray-50 border-t border-gray-100">
+                        Rechazar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
           {!isNueva && estado === "RECHAZADA" && cotizacionId && (
@@ -949,6 +1053,22 @@ export default function CotizacionForm({ id }: { id: string }) {
 
         {/* ── Columna derecha: secciones ───────────────────────────────── */}
         <div className="flex-1 overflow-y-auto pb-4">
+          <div className="flex items-center justify-end mb-2">
+            {(() => {
+              const todasAbiertas = SECCIONES.every((s) => seccionesAbiertas[s.key]);
+              return (
+                <button type="button"
+                  onClick={() => setSeccionesAbiertas(Object.fromEntries(SECCIONES.map((s) => [s.key, !todasAbiertas])))}
+                  className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                    style={{ transform: todasAbiertas ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}>
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                  {todasAbiertas ? "Contraer todo" : "Expandir todo"}
+                </button>
+              );
+            })()}
+          </div>
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
             {SECCIONES.map(({ key, label }, secIdx) => {
               const filas = lineas[key] ?? [];
@@ -1016,7 +1136,12 @@ export default function CotizacionForm({ id }: { id: string }) {
                         className="flex items-center gap-3 px-4 py-2 border-t border-gray-50 hover:bg-blue-50/20 group transition-colors">
                         {/* Descripción */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12px] text-gray-800 truncate">{l.descripcion}</p>
+                          <p className="text-[12px] text-gray-800 truncate">
+                            {l.descripcion}
+                            {l.valor_tercero && (
+                              <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Tercero</span>
+                            )}
+                          </p>
                           {l.condiciones_costo && (
                             <p className="text-[10px] text-gray-400 truncate">{l.condiciones_costo}</p>
                           )}

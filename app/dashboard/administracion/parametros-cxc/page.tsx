@@ -14,6 +14,8 @@ interface CxcParametro {
   cuenta_ingresos_display: string | null;
   cuenta_iva_id: string | null;
   cuenta_iva_display: string | null;
+  cuenta_valores_terceros_id: string | null;
+  cuenta_valores_terceros_display: string | null;
 }
 
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
@@ -82,6 +84,8 @@ export default function ParametrosCxcPage() {
   const [ingresosDisp, setIngresosDisp] = useState<string | null>(null);
   const [ivaId, setIvaId]               = useState<string | null>(null);
   const [ivaDisp, setIvaDisp]           = useState<string | null>(null);
+  const [vtId, setVtId]                 = useState<string | null>(null);
+  const [vtDisp, setVtDisp]             = useState<string | null>(null);
 
   useEffect(() => { cargar(); }, []);
 
@@ -93,6 +97,7 @@ export default function ParametrosCxcPage() {
       setClientesId(d.cuenta_clientes_id);   setClientesDisp(d.cuenta_clientes_display);
       setIngresosId(d.cuenta_ingresos_id);   setIngresosDisp(d.cuenta_ingresos_display);
       setIvaId(d.cuenta_iva_id);             setIvaDisp(d.cuenta_iva_display);
+      setVtId(d.cuenta_valores_terceros_id); setVtDisp(d.cuenta_valores_terceros_display);
     } finally { setLoading(false); }
   }
 
@@ -105,6 +110,7 @@ export default function ParametrosCxcPage() {
           cuenta_clientes_id: clientesId,
           cuenta_ingresos_id: ingresosId,
           cuenta_iva_id: ivaId,
+          cuenta_valores_terceros_id: vtId,
         }),
       });
       setOk(true);
@@ -153,6 +159,13 @@ export default function ParametrosCxcPage() {
             ayuda="Crédito del IVA en facturas gravadas. Ej: 240806 — IVA por pagar"
             valor={ivaId} display={ivaDisp}
             onChange={(id, d) => { setIvaId(id); setIvaDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta valores recibidos para terceros"
+            ayuda="Pasivo por dinero cobrado al cliente que se traslada a un tercero (aduana, bodega). Ej: 2815 — Ingresos recibidos para terceros"
+            valor={vtId} display={vtDisp}
+            onChange={(id, d) => { setVtId(id); setVtDisp(d); }}
           />
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

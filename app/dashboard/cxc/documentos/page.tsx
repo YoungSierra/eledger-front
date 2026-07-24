@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import AsientoModal, { AsientoData } from "@/components/AsientoModal";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -216,9 +217,11 @@ export default function CarteraPage() {
   // Filtros
   const [fTipo, setFTipo]             = useState("");
   const [fEstado, setFEstado]         = useState("");
-  const [fDesde, setFDesde]           = useState("");
-  const [fHasta, setFHasta]           = useState("");
+  const [fDesde, setFDesde]           = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [fHasta, setFHasta]           = useState(() => new Date().toISOString().slice(0, 10));
   const [fPendientes, setFPendientes] = useState(false);
+  const [fClienteLista, setFClienteLista]         = useState("");
+  const [fClienteListaDisplay, setFClienteListaDisplay] = useState("");
 
   // Catálogos
   const [monedas, setMonedas]         = useState<Moneda[]>([]);
@@ -262,6 +265,9 @@ export default function CarteraPage() {
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<AsientoData | null>(null);
+  const [previewReal, setPreviewReal] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
 
@@ -290,13 +296,13 @@ export default function CarteraPage() {
       if (fEstado)     p.set("estado", fEstado);
       if (fDesde)      p.set("fecha_desde", fDesde);
       if (fHasta)      p.set("fecha_hasta", fHasta);
+      if (fClienteLista) p.set("tercero_id", fClienteLista);
       if (fPendientes) p.set("solo_pendientes", "true");
       const res = await apiFetch<ListResponse>(`/cxc?${p}`);
       setLista(res.items); setTotalItems(res.total);
     } finally { setLoading(false); }
-  }, [fTipo, fEstado, fDesde, fHasta, fPendientes]);
+  }, [fTipo, fEstado, fDesde, fHasta, fClienteLista, fPendientes]);
 
-  useEffect(() => { setPagina(1); cargar(1); }, [fTipo, fEstado, fDesde, fHasta, fPendientes]);
   useEffect(() => { cargar(pagina); }, [pagina]);
 
   // ── Abrir modal ────────────────────────────────────────────────────────────
@@ -387,6 +393,36 @@ export default function CarteraPage() {
   function delRet(key: string) { setRetenciones((p) => p.filter((r) => r._key !== key)); }
 
   // ── Guardar ────────────────────────────────────────────────────────────────
+
+  async function verAsiento() {
+    setPreviewLoading(true); setError("");
+    try {
+      let d: AsientoData;
+      if (modo === "ver" && activo) {
+        d = await apiFetch<AsientoData>(`/cxc/${activo.id}/asiento`);
+        setPreviewReal(true);
+      } else {
+        const body = {
+          tipo: fTipoDoc, numero: fNumero.trim() || "PREVIEW",
+          fecha: fFecha, fecha_vencimiento: fVencimiento || null,
+          tercero_id: fTerceroId, moneda_id: fMonedaId,
+          trm: fMonedaId !== monedaFuncId && fTrm ? parseFloat(fTrm) : null,
+          subtotal, total_iva: totalIva, total_retenciones: parseFloat(totalRet.toFixed(4)),
+          retenciones: retenciones.map((r) => ({
+            tipo: r.tipo, concepto: r.concepto,
+            base: parseFloat(r.base) || 0, porcentaje: parseFloat(r.porcentaje) || 0,
+            valor: Math.round((parseFloat(r.base) || 0) * (parseFloat(r.porcentaje) || 0) / 100 * 10000) / 10000,
+            cuenta_id: r.cuenta_id,
+          })),
+          tarifa_iva_id: fTarifaIvaId || null, condicion_pago_id: fCondicionPagoId || null,
+        };
+        d = await apiFetch<AsientoData>("/cxc/preview-asiento", { method: "POST", body: JSON.stringify(body) });
+        setPreviewReal(false);
+      }
+      setPreview(d);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al obtener el asiento"); }
+    finally { setPreviewLoading(false); }
+  }
 
   async function guardar(contabilizarAlGuardar = false) {
     if (!fNumero.trim()) { setError("El número del documento es obligatorio"); return; }
@@ -527,12 +563,28 @@ export default function CarteraPage() {
           <label className={lbl}>Hasta</label>
           <input type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
+        <div className="w-52">
+          <label className={lbl}>Cliente</label>
+          {fClienteLista ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{fClienteListaDisplay}</span>
+              <button onClick={() => { setFClienteLista(""); setFClienteListaDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <TerceroSearch display="" onChange={(id, display) => { setFClienteLista(id); setFClienteListaDisplay(display); }} />
+          )}
+        </div>
         <label className="flex items-center gap-2 text-[12px] text-gray-600 cursor-pointer pb-0.5">
           <input type="checkbox" checked={fPendientes} onChange={(e) => setFPendientes(e.target.checked)} className="rounded" />
           Solo con saldo pendiente
         </label>
-        {(fTipo || fEstado || fDesde || fHasta || fPendientes) && (
-          <button onClick={() => { setFTipo(""); setFEstado(""); setFDesde(""); setFHasta(""); setFPendientes(false); }}
+        <button onClick={() => { setPagina(1); cargar(1); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
+        {(fTipo || fEstado || fClienteLista || fPendientes) && (
+          <button onClick={() => { setFTipo(""); setFEstado(""); setFClienteLista(""); setFClienteListaDisplay(""); setFPendientes(false); setTimeout(() => { setPagina(1); cargar(1); }, 0); }}
             className="text-[11px] text-gray-400 hover:text-gray-600 underline pb-0.5">Limpiar</button>
         )}
       </div>
@@ -565,7 +617,12 @@ export default function CarteraPage() {
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (
                   <tr key={d.id} className="hover:bg-gray-50/60 transition-colors">
-                    <td className="px-3 py-2.5 font-mono font-semibold text-blue-600">{d.numero}</td>
+                    <td className="px-3 py-2.5">
+                      <button onClick={() => (d.tipo === "FACTURA" && d.estado === "borrador") ? abrirEditar(d) : abrirVer(d)}
+                        className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors">
+                        {d.numero}
+                      </button>
+                    </td>
                     <td className="px-3 py-2.5">
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${TIPO_BADGE[d.tipo]}`}>
                         {TIPOS.find((t) => t.value === d.tipo)?.label ?? d.tipo}
@@ -818,6 +875,10 @@ export default function CarteraPage() {
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
               <button onClick={cerrar} className="px-5 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white">Cancelar</button>
+              <button onClick={verAsiento} disabled={previewLoading || !fTerceroId || subtotal <= 0}
+                className="px-4 py-2 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-white disabled:opacity-40">
+                {previewLoading ? "Calculando…" : "Ver asiento"}
+              </button>
               <button onClick={() => guardar(false)} disabled={saving}
                 className="flex-1 py-2 border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 text-[12px] font-medium rounded-lg disabled:opacity-50">
                 {saving ? "Guardando..." : "Guardar borrador"}
@@ -930,6 +991,12 @@ export default function CarteraPage() {
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
               <button onClick={cerrar} className="px-5 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white">Cerrar</button>
+              {activo.estado === "contabilizado" && (
+                <button onClick={verAsiento} disabled={previewLoading}
+                  className="px-4 py-2 text-[12px] font-medium border border-gray-300 text-blue-700 rounded-lg hover:bg-white disabled:opacity-40">
+                  {previewLoading ? "Cargando…" : "Ver asiento"}
+                </button>
+              )}
               {activo.estado === "borrador" && (
                 <button onClick={contabilizar} disabled={saving}
                   className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
@@ -1062,6 +1129,8 @@ export default function CarteraPage() {
           </div>
         </div>
       )}
+
+      {preview && <AsientoModal data={preview} real={previewReal} onClose={() => setPreview(null)} />}
     </div>
   );
 }

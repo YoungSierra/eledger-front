@@ -5,17 +5,21 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { MenuContext, usePageTitle } from "@/lib/menu-context";
 
+interface ClienteResumen { id: string; nombre: string; nit: string | null; }
+
 interface Operacion {
-  id: string; numero: string; cotizacion_id: string;
+  id: string; numero: string;
   fecha_apertura: string;
   estado: "ABIERTA" | "EN_CURSO" | "CERRADA" | "CANCELADA";
   piezas: number | null; peso_kg: string | null;
+  clientes: ClienteResumen[];
 }
 
 interface Cotizacion {
   id: string; numero: string; cliente_nombre: string;
   fecha: string; fecha_vigencia: string;
   origen: string; destino: string;
+  operacion_id: string | null;
   tipo_operacion: "IMPORTACION" | "EXPORTACION";
   estado: "BORRADOR" | "ENVIADA" | "APROBADA" | "RECHAZADA" | "VENCIDA";
 }
@@ -252,7 +256,15 @@ export default function DashboardPage() {
   const accesos = ACCESOS.filter((a) => tiene(a.modulo, a.fragmento));
 
   // Cotización de cada operación: da cliente y ruta, que la operación no lleva.
-  const porCotizacion = new Map(cotizaciones.map((c) => [c.id, c]));
+  // Una operación puede agrupar varias cotizaciones (multicliente); la relación
+  // vive en cotizacion.operacion_id.
+  const cotsPorOperacion = new Map<string, Cotizacion[]>();
+  cotizaciones.forEach((c) => {
+    if (!c.operacion_id) return;
+    const arr = cotsPorOperacion.get(c.operacion_id) ?? [];
+    arr.push(c);
+    cotsPorOperacion.set(c.operacion_id, arr);
+  });
 
   const activas = operaciones
     .filter((o) => o.estado === "ABIERTA" || o.estado === "EN_CURSO")
@@ -311,7 +323,7 @@ export default function DashboardPage() {
   const medianoche = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
   const antiguedad: FilaAntiguedad[] = activas
     .map((o) => {
-      const c = porCotizacion.get(o.cotizacion_id);
+      const c = (cotsPorOperacion.get(o.id) ?? [])[0];
       return {
         id: o.id,
         numero: o.numero,
@@ -325,9 +337,10 @@ export default function DashboardPage() {
 
   const conteoDestino = new Map<string, number>();
   operaciones.forEach((o) => {
-    const c = porCotizacion.get(o.cotizacion_id);
-    if (!c) return;
-    conteoDestino.set(c.destino, (conteoDestino.get(c.destino) ?? 0) + 1);
+    const destinosOp = new Set(
+      (cotsPorOperacion.get(o.id) ?? []).map((c) => c.destino).filter(Boolean)
+    );
+    destinosOp.forEach((d) => conteoDestino.set(d, (conteoDestino.get(d) ?? 0) + 1));
   });
   const destinos = [...conteoDestino.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -452,14 +465,18 @@ export default function DashboardPage() {
               ) : activas.length === 0 ? (
                 <p className="px-4 py-3 text-[11px] text-gray-400">No hay operaciones abiertas ni en curso.</p>
               ) : activas.map((op) => {
-                const cot = porCotizacion.get(op.cotizacion_id);
+                const cots = cotsPorOperacion.get(op.id) ?? [];
+                const cot = cots[0];
+                const cliente = op.clientes.length
+                  ? op.clientes.map((c) => c.nombre).join(", ")
+                  : "";
                 return (
                   <Link key={op.id} href={`/dashboard/operaciones/operaciones/${op.id}`}
                     className="block px-4 py-2.5 hover:bg-gray-50 transition-colors">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-bold text-gray-800 truncate">
                         {op.numero}
-                        {cot && <span className="font-normal text-gray-500"> · {cot.cliente_nombre}</span>}
+                        {cliente && <span className="font-normal text-gray-500"> · {cliente}</span>}
                       </span>
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${ESTADO_OP[op.estado]}`}>{op.estado}</span>
                     </div>

@@ -347,7 +347,7 @@ export default function HawbForm({ operacionId, hawbId }: { operacionId: string;
           {!isNuevo && estado !== "ANULADA" && (
             <div style={{ position: "relative" }}>
               <button onClick={() => setMenuOpen((o) => !o)} disabled={saving} title="Más acciones"
-                style={{ padding: "4px 8px", background: "#fff", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 5, fontSize: 15, lineHeight: 1, cursor: "pointer" }}>
+                style={{ padding: "4px 8px", background: "#fff", color: "#2563eb", border: "1px solid #e2e8f0", borderRadius: 5, fontSize: 15, lineHeight: 1, cursor: "pointer" }}>
                 ⋮
               </button>
               {menuOpen && (

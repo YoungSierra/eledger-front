@@ -201,6 +201,10 @@ export default function OrdenesCompraPage() {
   const porPagina = 20;
   const [loading, setLoading] = useState(true);
   const [fEstado, setFEstado] = useState("");
+  const [flDesde, setFlDesde] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
+  const [flHasta, setFlHasta] = useState(() => new Date().toISOString().slice(0, 10));
+  const [flProvId, setFlProvId] = useState("");
+  const [flProvDisplay, setFlProvDisplay] = useState("");
   // El backend lista por fecha descendente — ese es el orden inicial.
   const { orden, alternar } = useOrden<
     "numero" | "fecha" | "proveedor" | "subtotal" | "iva" | "total" | "estado" | "recepciones"
@@ -252,15 +256,18 @@ export default function OrdenesCompraPage() {
     try {
       const params = new URLSearchParams({ pagina: String(pagina), por_pagina: String(porPagina) });
       if (fEstado) params.set("estado", fEstado);
+      if (flDesde) params.set("fecha_desde", flDesde);
+      if (flHasta) params.set("fecha_hasta", flHasta);
+      if (flProvId) params.set("proveedor_id", flProvId);
       const d: ListResponse = await apiFetch(`/compras/ordenes?${params}`);
       setLista(d.items);
       setTotalItems(d.total);
     } finally {
       setLoading(false);
     }
-  }, [pagina, fEstado]);
+  }, [pagina, fEstado, flDesde, flHasta, flProvId]);
 
-  useEffect(() => { cargarLista(); }, [cargarLista]);
+  useEffect(() => { cargarLista(); }, [pagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     apiFetch("/maestros/monedas").then((d: any) => {
@@ -485,27 +492,60 @@ export default function OrdenesCompraPage() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col">
-      {/* Barra superior */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white flex-shrink-0">
-        <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
+      {/* Encabezado */}
+      <div className="flex items-center justify-between mb-4 shrink-0">
+        <div>
+          <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
+          <p className="text-[12px] text-gray-400 mt-0.5">Órdenes de compra a proveedores</p>
+        </div>
         <button onClick={abrirCrear}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-[12px] font-medium hover:bg-blue-700">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Nueva OC
         </button>
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-3 px-6 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
-        <select value={fEstado} onChange={(e) => { setFEstado(e.target.value); setPagina(1); }}
-          className="text-[12px] border border-gray-200 rounded px-2 py-1 bg-white text-gray-700">
-          <option value="">Todos los estados</option>
-          {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+      <div className="flex flex-wrap items-end gap-3 mb-4 shrink-0">
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Estado</label>
+          <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">Todos</option>
+            {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Desde</label>
+          <input type="date" value={flDesde} onChange={(e) => setFlDesde(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Hasta</label>
+          <input type="date" value={flHasta} onChange={(e) => setFlHasta(e.target.value)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div className="w-52">
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Proveedor</label>
+          {flProvId ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-gray-50">
+              <span className="truncate flex-1">{flProvDisplay}</span>
+              <button onClick={() => { setFlProvId(""); setFlProvDisplay(""); }} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+          ) : (
+            <TerceroSearch display="" onChange={(id, d) => { setFlProvId(id); setFlProvDisplay(d); }} />
+          )}
+        </div>
+        <button onClick={() => { setPagina(1); cargarLista(); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors shrink-0">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Buscar
+        </button>
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+       <div className="flex-1 overflow-auto">
         <table className="w-full min-w-[760px] text-[12px]">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
             <tr className="text-[10px] font-bold uppercase text-gray-400">
@@ -527,7 +567,12 @@ export default function OrdenesCompraPage() {
               <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin órdenes de compra</td></tr>
             ) : ordenada.map((oc) => (
               <tr key={oc.id} className="hover:bg-gray-50/60 transition-colors">
-                <td className="px-4 py-2.5 font-mono text-blue-600 font-semibold whitespace-nowrap">{oc.numero}</td>
+                <td className="px-4 py-2.5 whitespace-nowrap">
+                  <button onClick={() => abrirVer(oc.id)}
+                    className="font-mono text-blue-600 font-semibold hover:text-blue-800 hover:underline transition-colors">
+                    {oc.numero}
+                  </button>
+                </td>
                 <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{oc.fecha}</td>
                 <td className="px-4 py-2.5 w-52 max-w-[208px]">
                   <div className="font-medium text-gray-800 truncate">{oc.proveedor_nombre}</div>
@@ -555,10 +600,10 @@ export default function OrdenesCompraPage() {
             ))}
           </tbody>
         </table>
-      </div>
+       </div>
 
-      {/* Paginación */}
-      <div className="flex items-center justify-between px-6 py-2 border-t border-gray-200 bg-white flex-shrink-0 text-[12px] text-gray-500">
+       {/* Paginación */}
+       <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 shrink-0 text-[12px] text-gray-500">
         <span>{Math.min((pagina - 1) * porPagina + 1, totalItems)}–{Math.min(pagina * porPagina, totalItems)} de {totalItems}</span>
         <div className="flex items-center gap-1">
           <button onClick={() => setPagina(1)} disabled={pagina === 1} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">«</button>
@@ -566,6 +611,7 @@ export default function OrdenesCompraPage() {
           <button onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">›</button>
           <button onClick={() => setPagina(totalPaginas)} disabled={pagina === totalPaginas} className="px-2 py-0.5 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50">»</button>
         </div>
+       </div>
       </div>
 
       {/* ─── Modal crear / editar ───────────────────────────────────────────────── */}
@@ -925,7 +971,8 @@ export default function OrdenesCompraPage() {
               <div className="flex gap-2">
                 {["aprobada", "en_proceso", "recibida_total"].includes(activo.estado) && (
                   <button onClick={() => window.open(`/oc/${activo.id}`, "_blank")}
-                    className="px-3 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                     Imprimir
                   </button>
                 )}

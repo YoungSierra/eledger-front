@@ -12,9 +12,12 @@ interface Concepto {
   moneda: "USD" | "COP"; activo: boolean;
   cuenta_ingreso_id: string | null; cuenta_ingreso_nombre: string | null;
   tarifa_iva_id: string | null; tarifa_iva_nombre: string | null;
+  um_id: string | null; um_codigo: string | null;
+  es_valor_tercero: boolean;
 }
 interface Cuenta { id: string; codigo: string; nombre: string; }
 interface TarifaIva { id: string; nombre: string; porcentaje: string; }
+interface UnidadMedida { id: string; codigo: string; nombre: string; }
 
 type TipoCalculo = "POR_KG" | "POR_EMBARQUE" | "PORCENTAJE";
 type Moneda = "USD" | "COP";
@@ -43,8 +46,8 @@ const TIPO_LABEL: Record<TipoCalculo, string> = {
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
-interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; tarifa_iva_id: string; }
-const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", tarifa_iva_id: "" };
+interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; tarifa_iva_id: string; um_id: string; es_valor_tercero: boolean; }
+const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", tarifa_iva_id: "", um_id: "", es_valor_tercero: false };
 
 function CuentaSearch({ label, cuentaDisplay, onChange }: {
   label: string; cuentaDisplay: string; onChange: (id: string) => void;
@@ -73,6 +76,7 @@ function CuentaSearch({ label, cuentaDisplay, onChange }: {
     <div className="relative">
       <label className={lbl}>{label}</label>
       <input value={q} onChange={(e) => buscar(e.target.value)}
+        onFocus={(e) => e.target.select()}
         onBlur={() => setTimeout(() => setAbierto(false), 150)}
         placeholder="Buscar por código o nombre..." className={inp} />
       {abierto && (
@@ -102,13 +106,17 @@ export default function ConceptosPage() {
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
   const [tarifasIva, setTarifasIva]   = useState<TarifaIva[]>([]);
+  const [unidades, setUnidades]       = useState<UnidadMedida[]>([]);
   const [cuentaNombre, setCuentaNombre] = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 20;
   const { orden, alternar } = useOrden<"seccion" | "concepto" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
-  useEffect(() => { apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {}); }, []);
+  useEffect(() => {
+    apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {});
+    apiFetch<UnidadMedida[]>("/inventario/unidades-medida?solo_activos=true").then(setUnidades).catch(() => {});
+  }, []);
 
   async function cargar() {
     const data = await apiFetch<Concepto[]>(`/operaciones/conceptos?solo_activos=${soloActivos}`);
@@ -123,7 +131,8 @@ export default function ConceptosPage() {
   function abrirEditar(c: Concepto) {
     setSel(c);
     setForm({ nombre: c.nombre, seccion: c.seccion, tipo_calculo: c.tipo_calculo, moneda: c.moneda,
-      cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", tarifa_iva_id: c.tarifa_iva_id ?? "" });
+      cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", tarifa_iva_id: c.tarifa_iva_id ?? "", um_id: c.um_id ?? "",
+      es_valor_tercero: c.es_valor_tercero ?? false });
     setCuentaNombre(c.cuenta_ingreso_nombre ?? "");
     setError(""); setDrawer("editar");
   }
@@ -131,7 +140,7 @@ export default function ConceptosPage() {
   async function guardar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError("");
     try {
-      const payload = { ...form, cuenta_ingreso_id: form.cuenta_ingreso_id || null, tarifa_iva_id: form.tarifa_iva_id || null };
+      const payload = { ...form, cuenta_ingreso_id: form.cuenta_ingreso_id || null, tarifa_iva_id: form.tarifa_iva_id || null, um_id: form.um_id || null };
       if (drawer === "crear") {
         await apiFetch("/operaciones/conceptos", { method: "POST", body: JSON.stringify(payload) });
       } else {
@@ -217,13 +226,15 @@ export default function ConceptosPage() {
                 <Th campo="concepto" orden={orden} alternar={alternar}>Concepto</Th>
                 <Th campo="tipo"     orden={orden} alternar={alternar}>Tipo cálculo</Th>
                 <Th campo="moneda"   orden={orden} alternar={alternar}>Moneda</Th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">UM</th>
+                <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-wide text-gray-400" title="Valor recibido para tercero">VRT</th>
                 <Th campo="estado"   orden={orden} alternar={alternar}>Estado</Th>
                 <th className="px-4 py-2.5 w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filas.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-gray-400">
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-gray-400">
                   {busqueda || filtroSeccion ? "Sin resultados para los filtros aplicados" : "Sin conceptos registrados"}
                 </td></tr>
               ) : filas.map((c) => (
@@ -241,6 +252,12 @@ export default function ConceptosPage() {
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${c.moneda === "USD" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"}`}>
                       {c.moneda}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-[11px] text-gray-500">{c.um_codigo ?? "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    {c.es_valor_tercero
+                      ? <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-50 text-amber-700 border border-amber-200">Sí</span>
+                      : <span className="text-[11px] text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${c.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
@@ -330,15 +347,37 @@ export default function ConceptosPage() {
 
               <div className="pt-2 border-t border-gray-100 space-y-3">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-500">Parámetros de facturación</p>
-                <CuentaSearch label="Cuenta de ingreso" cuentaDisplay={cuentaNombre}
+                <CuentaSearch
+                  label={form.es_valor_tercero ? "Cuenta valores para tercero (ej. 2815)" : "Cuenta de ingreso"}
+                  cuentaDisplay={cuentaNombre}
                   onChange={(id) => setForm(p => ({ ...p, cuenta_ingreso_id: id }))} />
-                <div>
-                  <label className={lbl}>Tarifa de IVA</label>
-                  <select value={form.tarifa_iva_id} onChange={(e) => setForm(p => ({ ...p, tarifa_iva_id: e.target.value }))} className={inp}>
-                    <option value="">Sin IVA</option>
-                    {tarifasIva.map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
-                  </select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={lbl}>Tarifa de IVA</label>
+                    <select value={form.es_valor_tercero ? "" : form.tarifa_iva_id} disabled={form.es_valor_tercero}
+                      onChange={(e) => setForm(p => ({ ...p, tarifa_iva_id: e.target.value }))}
+                      className={inp + (form.es_valor_tercero ? " bg-gray-50 text-gray-400 cursor-not-allowed" : "")}>
+                      <option value="">Sin IVA</option>
+                      {tarifasIva.map((t) => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
+                    </select>
+                    {form.es_valor_tercero && <p className="text-[10px] text-gray-400 mt-0.5">No aplica IVA en valores para terceros.</p>}
+                  </div>
+                  <div>
+                    <label className={lbl}>Unidad de medida</label>
+                    <select value={form.um_id} onChange={(e) => setForm(p => ({ ...p, um_id: e.target.value }))} className={inp}>
+                      <option value="">—</option>
+                      {unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo} — {u.nombre}</option>)}
+                    </select>
+                  </div>
                 </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" className="mt-0.5" checked={form.es_valor_tercero}
+                    onChange={(e) => setForm(p => ({ ...p, es_valor_tercero: e.target.checked, tarifa_iva_id: e.target.checked ? "" : p.tarifa_iva_id }))} />
+                  <span>
+                    <span className="text-[12px] text-gray-700 font-medium">Es valor recibido para tercero</span>
+                    <span className="block text-[10px] text-gray-400">Dinero que se cobra al cliente y se traslada a un tercero (aduana, bodega). Pre-marca el concepto en cotización y factura.</span>
+                  </span>
+                </label>
               </div>
 
               {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">{error}</p>}
