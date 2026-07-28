@@ -12,6 +12,12 @@ interface CxpParametro {
   cuenta_proveedores_display: string | null;
   cuenta_mercancias_recibidas_id: string | null;
   cuenta_mercancias_recibidas_display: string | null;
+  cuenta_anticipos_id: string | null;
+  cuenta_anticipos_display: string | null;
+  cuenta_descuentos_id: string | null;
+  cuenta_descuentos_display: string | null;
+  cuenta_aprovechamientos_id: string | null;
+  cuenta_aprovechamientos_display: string | null;
 }
 
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
@@ -77,6 +83,12 @@ export default function ParametrosCxpPage() {
   const [proveedoresDisp, setProveedoresDisp]     = useState<string | null>(null);
   const [mercanciasId, setMercanciasId]           = useState<string | null>(null);
   const [mercanciasDisp, setMercanciasDisp]       = useState<string | null>(null);
+  const [antId, setAntId]                         = useState<string | null>(null);
+  const [antDisp, setAntDisp]                     = useState<string | null>(null);
+  const [descId, setDescId]                       = useState<string | null>(null);
+  const [descDisp, setDescDisp]                   = useState<string | null>(null);
+  const [aprovId, setAprovId]                     = useState<string | null>(null);
+  const [aprovDisp, setAprovDisp]                 = useState<string | null>(null);
 
   useEffect(() => { cargar(); }, []);
 
@@ -88,6 +100,9 @@ export default function ParametrosCxpPage() {
       setProveedoresDisp(d.cuenta_proveedores_display);
       setMercanciasId(d.cuenta_mercancias_recibidas_id);
       setMercanciasDisp(d.cuenta_mercancias_recibidas_display);
+      setAntId(d.cuenta_anticipos_id); setAntDisp(d.cuenta_anticipos_display);
+      setDescId(d.cuenta_descuentos_id); setDescDisp(d.cuenta_descuentos_display);
+      setAprovId(d.cuenta_aprovechamientos_id); setAprovDisp(d.cuenta_aprovechamientos_display);
     } finally { setLoading(false); }
   }
 
@@ -99,6 +114,9 @@ export default function ParametrosCxpPage() {
         body: JSON.stringify({
           cuenta_proveedores_id: proveedoresId,
           cuenta_mercancias_recibidas_id: mercanciasId,
+          cuenta_anticipos_id: antId,
+          cuenta_descuentos_id: descId,
+          cuenta_aprovechamientos_id: aprovId,
         }),
       });
       setOk(true);
@@ -140,6 +158,27 @@ export default function ParametrosCxpPage() {
             ayuda="Crédito al confirmar una recepción; se reversa al causar la factura del proveedor. Defínela con tu contador según el PUC de la empresa."
             valor={mercanciasId} display={mercanciasDisp}
             onChange={(id, d) => { setMercanciasId(id); setMercanciasDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta anticipos a proveedores"
+            ayuda="Débito al pagar un anticipo al proveedor antes de la factura. Ej: 1330 — Anticipos y avances"
+            valor={antId} display={antDisp}
+            onChange={(id, d) => { setAntId(id); setAntDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta descuentos en compras"
+            ayuda="Ingreso cuando el proveedor concede un descuento (pagamos menos y se salda la factura). Ej: 4210 — Financieros / descuentos"
+            valor={descId} display={descDisp}
+            onChange={(id, d) => { setDescId(id); setDescDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta ajuste / pérdida en pagos"
+            ayuda="Gasto/pérdida cuando pagamos de más al proveedor (diferencia en contra). Ej: 5305 — Gastos financieros o 539595 — Gastos diversos"
+            valor={aprovId} display={aprovDisp}
+            onChange={(id, d) => { setAprovId(id); setAprovDisp(d); }}
           />
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

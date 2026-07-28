@@ -9,9 +9,10 @@ interface MontoInputProps {
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  max?: number;
 }
 
-export function MontoInput({ value, onChange, decimales, className, placeholder, disabled }: MontoInputProps) {
+export function MontoInput({ value, onChange, decimales, className, placeholder, disabled, max }: MontoInputProps) {
   const [display, setDisplay] = useState("");
   const focused = useRef(false);
 
@@ -39,7 +40,8 @@ export function MontoInput({ value, onChange, decimales, className, placeholder,
     focused.current = false;
     const n = parseFloat(display);
     if (!isNaN(n) && n >= 0) {
-      const raw = decimales > 0 ? n.toFixed(decimales) : String(Math.round(n));
+      const clamped = max != null && n > max ? max : n;
+      const raw = decimales > 0 ? clamped.toFixed(decimales) : String(Math.round(clamped));
       onChange(raw);
       setDisplay(fmtDisplay(raw));
     } else {
@@ -58,6 +60,9 @@ export function MontoInput({ value, onChange, decimales, className, placeholder,
       raw = parts[0];
     } else if (parts.length === 2) {
       raw = parts[0] + "." + parts[1].slice(0, decimales);
+    }
+    if (max != null && raw !== "" && !isNaN(parseFloat(raw)) && parseFloat(raw) > max) {
+      raw = decimales > 0 ? String(max) : String(Math.round(max));
     }
     setDisplay(raw);
     onChange(raw);

@@ -1139,8 +1139,8 @@ function Modal({
                   {saving ? "Guardando…" : "Guardar borrador"}
                 </button>
                 <button onClick={contabilizar} disabled={saving || trmFaltante}
-                  className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                  {saving ? "Procesando…" : "Enviar y Contabilizar"}
+                  className="px-3 py-1.5 text-[12px] font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                  {saving ? "Procesando…" : "Guardar y contabilizar"}
                 </button>
               </>
             )}

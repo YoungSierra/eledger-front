@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 import AsientoModal, { AsientoData } from "@/components/AsientoModal";
+import { MontoInput } from "@/components/MontoInput";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -30,6 +31,9 @@ interface Documento {
   tarifa_iva_id: string | null; condicion_pago_id: string | null;
   asiento_id: string | null; asiento_modificado_manual: boolean;
   documento_origen_id: string | null;
+  ban_cuenta_id: string | null;
+  factura_afectada_id: string | null;
+  factura_afectada_numero: string | null;
   retenciones: Retencion[];
   creado_en: string; creado_por: string;
 }
@@ -42,9 +46,12 @@ interface ListItem {
   moneda_codigo: string; total: string; saldo: string;
   estado: "borrador" | "contabilizado" | "anulado";
   dias_vencimiento: number | null;
+  factura_afectada_numero: string | null;
 }
 
 interface ListResponse { items: ListItem[]; total: number; pagina: number; por_pagina: number; }
+interface Cruce { id: string; documento_id: string; numero: string; tipo: string; fecha: string; valor: string; estado: string; }
+interface NotaRel { id: string; numero: string; tipo: string; fecha: string; total: string; saldo: string; estado: string; }
 
 interface RetForm {
   _key: string;
@@ -204,7 +211,13 @@ function CuentaSearch({ display, onChange }: {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function CarteraPage() {
-  const title = usePageTitle();
+  return <DocumentosCxcView />;
+}
+
+export function DocumentosCxcView({ tipoFijo, titulo }: { tipoFijo?: string; titulo?: string } = {}) {
+  const pageTitle = usePageTitle();
+  const title = titulo ?? pageTitle;
+  const esNota = tipoFijo === "NOTA_CREDITO" || tipoFijo === "NOTA_DEBITO";
   const [lista, setLista]   = useState<ListItem[]>([]);
   const [totalItems, setTotalItems] = useState(0);
   const [pagina, setPagina] = useState(1);
@@ -215,7 +228,7 @@ export default function CarteraPage() {
   >("fecha", "desc", () => setPagina(1));
 
   // Filtros
-  const [fTipo, setFTipo]             = useState("");
+  const [fTipo, setFTipo]             = useState(tipoFijo ?? "");
   const [fEstado, setFEstado]         = useState("");
   const [fDesde, setFDesde]           = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
   const [fHasta, setFHasta]           = useState(() => new Date().toISOString().slice(0, 10));
@@ -236,7 +249,7 @@ export default function CarteraPage() {
 
   // Form
   const hoy = new Date().toISOString().slice(0, 10);
-  const [fTipoDoc, setFTipoDoc]           = useState<string>("FACTURA");
+  const [fTipoDoc, setFTipoDoc]           = useState<string>(tipoFijo ?? "FACTURA");
   const [fNumero, setFNumero]             = useState("");
   const [fFecha, setFFecha]               = useState(hoy);
   const [fVencimiento, setFVencimiento]   = useState("");
@@ -253,6 +266,12 @@ export default function CarteraPage() {
   const [fTarifaIvaId, setFTarifaIvaId]   = useState("");
   const [condicionesPago, setCondicionesPago] = useState<CondicionPago[]>([]);
   const [fCondicionPagoId, setFCondicionPagoId] = useState("");
+  const [cuentasBan, setCuentasBan]       = useState<{ id: string; nombre: string; numero: string; activo: boolean }[]>([]);
+  const [fBanCuentaId, setFBanCuentaId]   = useState("");
+  const [fFacturaAfectadaId, setFFacturaAfectadaId] = useState("");
+  const [facturasCliente, setFacturasCliente] = useState<ListItem[]>([]);
+  const [cruces, setCruces]               = useState<Cruce[]>([]);
+  const [notasRel, setNotasRel]           = useState<NotaRel[]>([]);
   const [retMenuAbierto, setRetMenuAbierto] = useState(false);
   const [retBusqueda, setRetBusqueda]       = useState("");
 
@@ -284,6 +303,8 @@ export default function CarteraPage() {
       .then(setTarifasIva).catch(() => {});
     apiFetch<CondicionPago[]>("/maestros/condiciones-pago?solo_activas=true")
       .then(setCondicionesPago).catch(() => {});
+    apiFetch<{ id: string; nombre: string; numero: string; activo: boolean }[]>("/bancos/cuentas?solo_activas=true")
+      .then((d) => setCuentasBan(d.filter((c) => c.activo))).catch(() => {});
   }, []);
 
   // ── Listar ─────────────────────────────────────────────────────────────────
@@ -305,14 +326,24 @@ export default function CarteraPage() {
 
   useEffect(() => { cargar(pagina); }, [pagina]);
 
+  // Facturas del cliente para referenciar en notas crédito/débito.
+  useEffect(() => {
+    if ((fTipoDoc === "NOTA_CREDITO" || fTipoDoc === "NOTA_DEBITO") && fTerceroId) {
+      apiFetch<ListResponse>(`/cxc?tipo=FACTURA&estado=contabilizado&tercero_id=${fTerceroId}&por_pagina=100`)
+        .then((r) => setFacturasCliente(r.items)).catch(() => setFacturasCliente([]));
+    } else {
+      setFacturasCliente([]);
+    }
+  }, [fTipoDoc, fTerceroId]);
+
   // ── Abrir modal ────────────────────────────────────────────────────────────
 
   function abrirCrear() {
-    setFTipoDoc("FACTURA"); setFNumero(""); setFFecha(hoy); setFVencimiento("");
+    setFTipoDoc(tipoFijo ?? "FACTURA"); setFNumero(""); setFFecha(hoy); setFVencimiento("");
     setFCondicionPagoId("");
     setFTerceroId(""); setFTerceroDisplay(""); setFMonedaId(monedaFuncId); setFTrm("");
     setFSubtotal(""); setFIvaPct("0"); setFTarifaIvaId(""); setFDescripcion("");
-    setRetenciones([]);
+    setRetenciones([]); setFBanCuentaId(""); setFFacturaAfectadaId("");
     setError(""); setModo("crear");
   }
 
@@ -320,13 +351,19 @@ export default function CarteraPage() {
     const doc = await apiFetch<Documento>(`/cxc/${item.id}`).catch(() => null);
     if (!doc) return;
     setActivo(doc); setError(""); setModo("ver");
+    apiFetch<Cruce[]>(`/cxc/${doc.id}/cruces`).then(setCruces).catch(() => setCruces([]));
+    if (doc.tipo === "FACTURA") {
+      apiFetch<NotaRel[]>(`/cxc/${doc.id}/notas-relacionadas`).then(setNotasRel).catch(() => setNotasRel([]));
+    } else {
+      setNotasRel([]);
+    }
     if (doc.estado === "contabilizado" && doc.saldo > 0) {
       const res = await apiFetch<ListResponse>(`/cxc?tipo=FACTURA&estado=contabilizado&solo_pendientes=true&por_pagina=100`).catch(() => null);
       setFacturasPendientes(res?.items.filter((f) => f.id !== doc.id && f.tercero_nit === doc.tercero_nit) ?? []);
     }
   }
 
-  function cerrar() { setModo(null); setActivo(null); setEditandoId(null); setError(""); setModalAnular(false); setModalAplicar(false); }
+  function cerrar() { setModo(null); setActivo(null); setEditandoId(null); setError(""); setModalAnular(false); setModalAplicar(false); setCruces([]); setNotasRel([]); }
 
   async function abrirEditar(item: ListItem) {
     const doc = await apiFetch<Documento>(`/cxc/${item.id}`).catch(() => null);
@@ -344,6 +381,8 @@ export default function CarteraPage() {
     setFTarifaIvaId(doc.tarifa_iva_id ?? "");
     setFCondicionPagoId(doc.condicion_pago_id ?? "");
     setFDescripcion(doc.descripcion ?? "");
+    setFBanCuentaId(doc.ban_cuenta_id ?? "");
+    setFFacturaAfectadaId(doc.factura_afectada_id ?? "");
     setRetenciones(doc.retenciones.map((r) => ({
       _key: keyRet(), tipo: r.tipo, concepto: r.concepto,
       base: String(r.base), porcentaje: String(r.porcentaje),
@@ -415,6 +454,8 @@ export default function CarteraPage() {
             cuenta_id: r.cuenta_id,
           })),
           tarifa_iva_id: fTarifaIvaId || null, condicion_pago_id: fCondicionPagoId || null,
+          ban_cuenta_id: fTipoDoc === "ANTICIPO" ? (fBanCuentaId || null) : null,
+          factura_afectada_id: (fTipoDoc === "NOTA_CREDITO" || fTipoDoc === "NOTA_DEBITO") ? (fFacturaAfectadaId || null) : null,
         };
         d = await apiFetch<AsientoData>("/cxc/preview-asiento", { method: "POST", body: JSON.stringify(body) });
         setPreviewReal(false);
@@ -425,11 +466,13 @@ export default function CarteraPage() {
   }
 
   async function guardar(contabilizarAlGuardar = false) {
-    if (!fNumero.trim()) { setError("El número del documento es obligatorio"); return; }
+    if (fTipoDoc === "FACTURA" && !fNumero.trim()) { setError("El número del documento es obligatorio"); return; }
     if (!fTerceroId) { setError("Selecciona el tercero"); return; }
     if (!fSubtotal || subtotal <= 0) { setError("El valor debe ser mayor que cero"); return; }
     if ((fTipoDoc === "FACTURA" || fTipoDoc === "NOTA_DEBITO") && !fVencimiento) { setError("La fecha de vencimiento es obligatoria"); return; }
     if (fVencimiento && fVencimiento < fFecha) { setError("La fecha de vencimiento no puede ser anterior a la fecha del documento"); return; }
+    if (fTipoDoc === "ANTICIPO" && !fBanCuentaId) { setError("Selecciona la cuenta bancaria del anticipo"); return; }
+    if ((fTipoDoc === "NOTA_CREDITO" || fTipoDoc === "NOTA_DEBITO") && !fFacturaAfectadaId) { setError("Selecciona la factura afectada por la nota"); return; }
 
     const retsBody = retenciones.map((r) => ({
       tipo: r.tipo, concepto: r.concepto,
@@ -452,13 +495,15 @@ export default function CarteraPage() {
       retenciones: retsBody,
       tarifa_iva_id: fTarifaIvaId || null,
       condicion_pago_id: fCondicionPagoId || null,
+      ban_cuenta_id: fTipoDoc === "ANTICIPO" ? (fBanCuentaId || null) : null,
+      factura_afectada_id: (fTipoDoc === "NOTA_CREDITO" || fTipoDoc === "NOTA_DEBITO") ? (fFacturaAfectadaId || null) : null,
     };
 
     setSaving(true); setError("");
     try {
       const doc = editandoId
         ? await apiFetch<Documento>(`/cxc/${editandoId}`, { method: "PUT", body: JSON.stringify(cuerpoComun) })
-        : await apiFetch<Documento>("/cxc", { method: "POST", body: JSON.stringify({ tipo: fTipoDoc, numero: fNumero.trim(), ...cuerpoComun }) });
+        : await apiFetch<Documento>("/cxc", { method: "POST", body: JSON.stringify({ tipo: fTipoDoc, numero: fTipoDoc === "FACTURA" ? fNumero.trim() : null, ...cuerpoComun }) });
       if (contabilizarAlGuardar) {
         await apiFetch(`/cxc/${doc.id}/contabilizar`, { method: "POST" });
       }
@@ -518,6 +563,10 @@ export default function CarteraPage() {
   });
 
   const totalPags = Math.max(1, Math.ceil(totalItems / porPagina));
+  const docLabel = tipoFijo === "ANTICIPO" ? "anticipo de cliente"
+    : tipoFijo === "NOTA_CREDITO" ? "nota crédito"
+    : tipoFijo === "NOTA_DEBITO" ? "nota débito"
+    : "documento CxC";
   const necesitaVencimiento = fTipoDoc === "FACTURA" || fTipoDoc === "NOTA_DEBITO";
   const esExtranjera = fMonedaId && fMonedaId !== monedaFuncId;
 
@@ -528,17 +577,18 @@ export default function CarteraPage() {
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
-          <p className="text-[12px] text-gray-400 mt-0.5">Documentos de cuentas por cobrar</p>
+          <p className="text-[12px] text-gray-400 mt-0.5">{tipoFijo ? `Gestión de ${docLabel}` : "Documentos de cuentas por cobrar"}</p>
         </div>
         <button onClick={abrirCrear}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nuevo documento
+          Nuevo {docLabel}
         </button>
       </div>
 
       {/* Filtros */}
       <div className="flex flex-wrap items-end gap-3 mb-4 shrink-0">
+        {!tipoFijo && (
         <div>
           <label className={lbl}>Tipo</label>
           <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
@@ -546,6 +596,7 @@ export default function CarteraPage() {
             {TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
+        )}
         <div>
           <label className={lbl}>Estado</label>
           <select value={fEstado} onChange={(e) => setFEstado(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
@@ -597,6 +648,7 @@ export default function CarteraPage() {
               <tr>
                 <Th campo="numero"      orden={orden} alternar={alternar} className="whitespace-nowrap">Número</Th>
                 <Th campo="tipo"        orden={orden} alternar={alternar} className="whitespace-nowrap">Tipo</Th>
+                {esNota && <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 whitespace-nowrap">Factura afectada</th>}
                 <Th campo="fecha"       orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
                 <Th campo="vencimiento" orden={orden} alternar={alternar} className="whitespace-nowrap">Vencimiento</Th>
                 <Th campo="tercero"     orden={orden} alternar={alternar} className="whitespace-nowrap">Tercero</Th>
@@ -609,16 +661,16 @@ export default function CarteraPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={esNota ? 11 : 10} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : ordenada.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Sin documentos registrados</td></tr>
+                <tr><td colSpan={esNota ? 11 : 10} className="px-4 py-8 text-center text-gray-400">Sin documentos registrados</td></tr>
               ) : ordenada.map((d) => {
                 const vencida = d.dias_vencimiento !== null && d.dias_vencimiento < 0;
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
                 return (
                   <tr key={d.id} className="hover:bg-gray-50/60 transition-colors">
                     <td className="px-3 py-2.5">
-                      <button onClick={() => (d.tipo === "FACTURA" && d.estado === "borrador") ? abrirEditar(d) : abrirVer(d)}
+                      <button onClick={() => d.estado === "borrador" ? abrirEditar(d) : abrirVer(d)}
                         className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors">
                         {d.numero}
                       </button>
@@ -628,6 +680,11 @@ export default function CarteraPage() {
                         {TIPOS.find((t) => t.value === d.tipo)?.label ?? d.tipo}
                       </span>
                     </td>
+                    {esNota && (
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-blue-600 whitespace-nowrap">
+                        {d.factura_afectada_numero ?? <span className="text-gray-300">—</span>}
+                      </td>
+                    )}
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       {d.fecha_vencimiento ? (
@@ -660,18 +717,16 @@ export default function CarteraPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5">
-                      {d.tipo === "FACTURA" && (
-                        d.estado === "borrador" ? (
-                          <button onClick={() => abrirEditar(d)} title="Editar"
-                            className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                        ) : (
-                          <button onClick={() => abrirVer(d)} title="Ver"
-                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                          </button>
-                        )
+                      {d.estado === "borrador" ? (
+                        <button onClick={() => abrirEditar(d)} title="Editar"
+                          className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                      ) : (
+                        <button onClick={() => abrirVer(d)} title="Ver"
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -702,7 +757,7 @@ export default function CarteraPage() {
             style={{ width: "min(820px, 95vw)", height: "min(88vh, 800px)" }}>
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-              <h2 className="text-[14px] font-semibold text-gray-800">{editandoId ? "Editar documento CxC" : "Nuevo documento CxC"}</h2>
+              <h2 className="text-[14px] font-semibold text-gray-800">{editandoId ? `Editar ${docLabel}` : `Nuevo ${docLabel}`}</h2>
               <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -715,11 +770,13 @@ export default function CarteraPage() {
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 mb-3">Encabezado</p>
                 <div className="grid grid-cols-3 gap-3">
+                  {fTipoDoc === "FACTURA" && (
                   <div>
                     <label className={lbl}>Número *</label>
                     <input value={fNumero} onChange={(e) => setFNumero(e.target.value)}
                       placeholder="Número del documento original" disabled={!!editandoId} className={`${inp} disabled:bg-gray-50 disabled:text-gray-400`} />
                   </div>
+                  )}
                   <div>
                     <label className={lbl}>Fecha *</label>
                     <input type="date" value={fFecha} onChange={(e) => {
@@ -764,6 +821,24 @@ export default function CarteraPage() {
                       <input type="number" step="0.01" value={fTrm} onChange={(e) => setFTrm(e.target.value)} placeholder="4234.50" className={inp} />
                     </div>
                   )}
+                  {fTipoDoc === "ANTICIPO" && (
+                    <div>
+                      <label className={lbl}>Cuenta bancaria *</label>
+                      <select value={fBanCuentaId} onChange={(e) => setFBanCuentaId(e.target.value)} className={inp}>
+                        <option value="">Selecciona…</option>
+                        {cuentasBan.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({c.numero})</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {(fTipoDoc === "NOTA_CREDITO" || fTipoDoc === "NOTA_DEBITO") && (
+                    <div className="col-span-2">
+                      <label className={lbl}>Factura afectada *</label>
+                      <select value={fFacturaAfectadaId} onChange={(e) => setFFacturaAfectadaId(e.target.value)} className={inp} disabled={!fTerceroId}>
+                        <option value="">{fTerceroId ? "Selecciona la factura…" : "Selecciona primero el cliente"}</option>
+                        {facturasCliente.map((f) => <option key={f.id} value={f.id}>{f.numero} — saldo {fmt(f.saldo)}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div className="col-span-3">
                     <label className={lbl}>Descripción</label>
                     <input value={fDescripcion} onChange={(e) => setFDescripcion(e.target.value)} placeholder="Concepto del documento…" className={inp} />
@@ -776,11 +851,12 @@ export default function CarteraPage() {
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 mb-3">Valores</p>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className={lbl}>Valor factura *</label>
-                    <input type="number" step="0.01" min="0" value={fSubtotal}
-                      onChange={(e) => { setFSubtotal(e.target.value); setRetenciones((r) => r.map((x) => ({ ...x, base: e.target.value }))); }}
-                      className={`${inp} text-right`} />
+                    <label className={lbl}>{fTipoDoc === "ANTICIPO" ? "Valor recibido *" : "Valor factura *"}</label>
+                    <MontoInput value={fSubtotal}
+                      onChange={(v) => { setFSubtotal(v); setRetenciones((r) => r.map((x) => ({ ...x, base: v }))); }}
+                      decimales={2} className={`${inp} text-right`} />
                   </div>
+                  {fTipoDoc !== "ANTICIPO" && (
                   <div>
                     <label className={lbl}>Tarifa IVA</label>
                     <select value={fTarifaIvaId} onChange={(e) => setFTarifaIvaId(e.target.value)} className={inp}>
@@ -790,14 +866,18 @@ export default function CarteraPage() {
                       ))}
                     </select>
                   </div>
+                  )}
+                  {fTipoDoc !== "ANTICIPO" && (
                   <div>
                     <label className={lbl}>Total IVA</label>
                     <div className="px-2.5 py-1.5 border border-gray-100 rounded-md text-[12px] text-gray-500 bg-gray-50 text-right">{fmt(totalIva)}</div>
                   </div>
+                  )}
                 </div>
               </div>
 
               {/* Retenciones */}
+              {fTipoDoc !== "ANTICIPO" && (
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Retenciones</p>
@@ -851,6 +931,7 @@ export default function CarteraPage() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Resumen totales */}
               <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-end gap-8">
@@ -884,8 +965,8 @@ export default function CarteraPage() {
                 {saving ? "Guardando..." : "Guardar borrador"}
               </button>
               <button onClick={() => guardar(true)} disabled={saving}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
-                {saving ? "Procesando..." : "Guardar y activar en cartera"}
+                className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {saving ? "Procesando..." : "Guardar y contabilizar"}
               </button>
             </div>
           </div>
@@ -929,6 +1010,12 @@ export default function CarteraPage() {
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Moneda</p>
                   <p className="text-[12px] text-gray-700">{activo.moneda_codigo}{activo.trm ? ` · TRM ${fmt(activo.trm)}` : ""}</p>
                 </div>
+                {activo.factura_afectada_numero && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Factura afectada</p>
+                    <p className="text-[12px] font-mono text-blue-600">{activo.factura_afectada_numero}</p>
+                  </div>
+                )}
                 {activo.descripcion && (
                   <div className="col-span-2">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Descripción</p>
@@ -987,6 +1074,72 @@ export default function CarteraPage() {
                   </table>
                 </div>
               )}
+
+              {/* Aplicaciones recibidas (recibos, NC, ND, anticipos) */}
+              {cruces.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">Aplicaciones recibidas</p>
+                  <table className="w-full text-[11px] border border-gray-200 rounded-lg overflow-hidden">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        {["Documento", "Tipo", "Fecha", "Valor aplicado"].map((h) => (
+                          <th key={h} className={`px-2 py-1.5 text-[10px] font-bold uppercase text-gray-400 ${h === "Valor aplicado" ? "text-right" : "text-left"}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {cruces.map((c) => (
+                        <tr key={c.id}>
+                          <td className="px-2 py-1.5 font-mono text-blue-600">{c.numero}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${TIPO_BADGE[c.tipo] ?? "bg-gray-100 text-gray-500"}`}>
+                              {TIPOS.find((t) => t.value === c.tipo)?.label ?? c.tipo}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-500">{c.fecha}</td>
+                          <td className="px-2 py-1.5 text-right font-mono font-semibold">{fmt(c.valor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Documentos relacionados (notas crédito/débito que afectan esta factura) */}
+              {notasRel.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">Documentos relacionados</p>
+                  <table className="w-full text-[11px] border border-gray-200 rounded-lg overflow-hidden">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        {["Documento", "Tipo", "Fecha", "Valor"].map((h) => (
+                          <th key={h} className={`px-2 py-1.5 text-[10px] font-bold uppercase text-gray-400 ${h === "Valor" ? "text-right" : "text-left"}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {notasRel.map((n) => {
+                        const esDebito = n.tipo === "NOTA_DEBITO";
+                        return (
+                          <tr key={n.id}>
+                            <td className="px-2 py-1.5 font-mono text-blue-600">{n.numero}</td>
+                            <td className="px-2 py-1.5">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${TIPO_BADGE[n.tipo] ?? "bg-gray-100 text-gray-500"}`}>
+                                {TIPOS.find((t) => t.value === n.tipo)?.label ?? n.tipo}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5 text-gray-500">{n.fecha}</td>
+                            <td className={`px-2 py-1.5 text-right font-mono font-semibold ${esDebito ? "text-red-600" : "text-green-600"}`}>
+                              {esDebito ? "+" : "−"}{fmt(n.total)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-gray-400 mt-1.5">Las notas son documentos independientes en cartera; la débito aumenta y la crédito disminuye el total a cobrar del cliente.</p>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
@@ -997,10 +1150,15 @@ export default function CarteraPage() {
                   {previewLoading ? "Cargando…" : "Ver asiento"}
                 </button>
               )}
+              <button onClick={() => window.open(`/cxc-documento/${activo.id}`, "_blank")}
+                className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimir
+              </button>
               {activo.estado === "borrador" && (
                 <button onClick={contabilizar} disabled={saving}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
-                  {saving ? "Procesando..." : "Activar en cartera"}
+                  className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                  {saving ? "Procesando..." : "Contabilizar"}
                 </button>
               )}
               {activo.estado === "contabilizado" && parseFloat(activo.saldo) > 0 && ["NOTA_CREDITO", "ANTICIPO", "RECIBO"].includes(activo.tipo) && (

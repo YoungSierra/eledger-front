@@ -13,6 +13,7 @@ interface ResumenItem {
   dias_31_60: string;
   dias_61_90: string;
   mas_90: string;
+  a_favor: string;
   total: string;
 }
 
@@ -24,6 +25,7 @@ interface ResumenResponse {
   total_31_60: string;
   total_61_90: string;
   total_mas_90: string;
+  total_a_favor: string;
   total_general: string;
 }
 
@@ -127,18 +129,21 @@ function SaldosContent() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 10, marginBottom: 16 }}>
           {[
             { label: "Corriente",    value: data.total_corriente },
             { label: "1 – 30 días",  value: data.total_1_30 },
             { label: "31 – 60 días", value: data.total_31_60 },
             { label: "61 – 90 días", value: data.total_61_90 },
             { label: "+ 90 días",    value: data.total_mas_90 },
+            { label: "A favor",      value: data.total_a_favor },
             { label: "TOTAL",        value: data.total_general },
           ].map(({ label, value }) => (
             <div key={label} style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "7px 10px", textAlign: "right" }}>
               <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#64748b", marginBottom: 3 }}>{label}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: "#1e293b" }}>{fmtTotal(value)}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace", color: "#1e293b" }}>
+                {label === "A favor" && parseFloat(String(value)) ? `(${fmtTotal(value)})` : fmtTotal(value)}
+              </div>
             </div>
           ))}
         </div>
@@ -153,6 +158,7 @@ function SaldosContent() {
               <th style={th}>31 – 60 días</th>
               <th style={th}>61 – 90 días</th>
               <th style={th}>+ 90 días</th>
+              <th style={th}>A favor</th>
               <th style={{ ...th, borderLeft: "1px solid #94a3b8" }}>Total</th>
             </tr>
           </thead>
@@ -166,6 +172,7 @@ function SaldosContent() {
                 <td style={td}>{fmt(item.dias_31_60)}</td>
                 <td style={td}>{fmt(item.dias_61_90)}</td>
                 <td style={{ ...td, fontWeight: parseFloat(item.mas_90) > 0 ? 700 : 400 }}>{fmt(item.mas_90)}</td>
+                <td style={td}>{parseFloat(item.a_favor) ? `(${fmt(item.a_favor)})` : "—"}</td>
                 <td style={{ ...td, fontWeight: 700, borderLeft: "1px solid #94a3b8" }}>{fmtTotal(item.total)}</td>
               </tr>
             ))}
@@ -178,6 +185,7 @@ function SaldosContent() {
               <td style={{ ...td, fontWeight: 700 }}>{fmtTotal(data.total_31_60)}</td>
               <td style={{ ...td, fontWeight: 700 }}>{fmtTotal(data.total_61_90)}</td>
               <td style={{ ...td, fontWeight: 700 }}>{fmtTotal(data.total_mas_90)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{parseFloat(data.total_a_favor) ? `(${fmtTotal(data.total_a_favor)})` : "—"}</td>
               <td style={{ ...td, fontWeight: 700, borderLeft: "1px solid #94a3b8" }}>{fmtTotal(data.total_general)}</td>
             </tr>
           </tfoot>

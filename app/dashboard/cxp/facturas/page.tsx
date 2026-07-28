@@ -99,6 +99,8 @@ interface Documento {
   total: string; saldo: string; descripcion: string | null;
   estado: "borrador" | "contabilizado" | "anulado";
   asiento_id: string | null;
+  factura_afectada_id: string | null;
+  factura_afectada_numero: string | null;
   lineas: LineaResponse[];
 }
 
@@ -109,6 +111,7 @@ interface ListItem {
   moneda_codigo: string; total: string; saldo: string;
   estado: "borrador" | "contabilizado" | "anulado";
   dias_vencimiento: number | null;
+  factura_afectada_numero: string | null;
 }
 
 interface ListResponse { items: ListItem[]; total: number; pagina: number; por_pagina: number; }
@@ -228,8 +231,14 @@ function CuentaSearch({ display, placeholder, onChange }: { display: string; pla
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
-export default function FacturasProveedorPage() {
+export function FacturasProveedorView({
+  tipoFijo = "FACTURA",
+  nuevoLabel = "Nueva factura de proveedor",
+  singular = "factura de proveedor",
+}: { tipoFijo?: string; nuevoLabel?: string; singular?: string } = {}) {
   const title = usePageTitle();
+  const esNota = tipoFijo === "NOTA_CREDITO" || tipoFijo === "NOTA_DEBITO";
+  const requiereVenc = tipoFijo === "FACTURA" || tipoFijo === "NOTA_DEBITO";
   const [lista, setLista] = useState<ListItem[]>([]);
   const [totalItems, setTotalItems] = useState(0);
   const [pagina, setPagina] = useState(1);
@@ -294,6 +303,12 @@ export default function FacturasProveedorPage() {
   // Líneas
   const [lineas, setLineas] = useState<LineaForm[]>([]);
 
+  // Factura afectada (notas)
+  const [fFacturaAfectadaId, setFFacturaAfectadaId] = useState("");
+  const [facturasAfectadas, setFacturasAfectadas] = useState<ListItem[]>([]);
+  // Aplicaciones recibidas (cruces) sobre la factura/ND en vista
+  const [cruces, setCruces] = useState<{ id: string; numero: string; tipo: string; fecha: string; valor: string; }[]>([]);
+
   // ── Carga inicial ──────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -320,7 +335,7 @@ export default function FacturasProveedorPage() {
   const cargar = useCallback(async (pag = 1) => {
     setLoading(true);
     try {
-      const p = new URLSearchParams({ pagina: String(pag), por_pagina: String(porPagina), tipo: "FACTURA" });
+      const p = new URLSearchParams({ pagina: String(pag), por_pagina: String(porPagina), tipo: tipoFijo });
       if (fEstado)     p.set("estado", fEstado);
       if (fDesde)      p.set("fecha_desde", fDesde);
       if (fHasta)      p.set("fecha_hasta", fHasta);
@@ -332,6 +347,13 @@ export default function FacturasProveedorPage() {
   }, [fEstado, fDesde, fHasta, fProvId, fPendientes]);
 
   useEffect(() => { cargar(pagina); }, [pagina]);
+
+  // Facturas del proveedor para referenciar en notas
+  useEffect(() => {
+    if (!esNota || !fTerceroId) { setFacturasAfectadas([]); return; }
+    apiFetch<ListResponse>(`/cxp?tipo=FACTURA&estado=contabilizado&tercero_id=${fTerceroId}&por_pagina=100`)
+      .then((r) => setFacturasAfectadas(r.items)).catch(() => setFacturasAfectadas([]));
+  }, [fTerceroId, esNota]);
 
   // ── Gestión de líneas ──────────────────────────────────────────────────────
 
@@ -496,6 +518,7 @@ export default function FacturasProveedorPage() {
     setFFecha(hoy); setFVencimiento(""); setFNumProv(""); setFDescripcion("");
     setFCondicionPagoId("");
     setFTerceroId(""); setFTerceroDisplay(""); setFMonedaId(monedaFuncId); setFTrm("");
+    setFFacturaAfectadaId("");
     setLineas([nuevaLinea()]);
     setError(""); setModo("crear");
   }
@@ -514,6 +537,7 @@ export default function FacturasProveedorPage() {
     setFTerceroDisplay(doc.tercero_nit && doc.tercero_nombre ? `${doc.tercero_nit} — ${doc.tercero_nombre}` : "");
     setFMonedaId(doc.moneda_id);
     setFTrm(doc.trm ?? "");
+    setFFacturaAfectadaId(doc.factura_afectada_id ?? "");
     const lineasForm: LineaForm[] = doc.lineas.map((l) => ({
       _key: key(),
       concepto_id: l.concepto_id ?? "",
@@ -544,11 +568,13 @@ export default function FacturasProveedorPage() {
     const doc = await apiFetch<Documento>(`/cxp/${item.id}`).catch(() => null);
     if (!doc) return;
     setActivo(doc); setError(""); setModo("ver");
+    apiFetch<{ id: string; numero: string; tipo: string; fecha: string; valor: string; }[]>(`/cxp/${item.id}/cruces`)
+      .then(setCruces).catch(() => setCruces([]));
   }
 
   function cerrar() {
     setModo(null); setActivo(null); setEditandoId(null);
-    setError(""); setModalAnular(false); setMotivoAnular("");
+    setError(""); setModalAnular(false); setMotivoAnular(""); setCruces([]);
   }
 
   // ── Guardar ────────────────────────────────────────────────────────────────
@@ -571,10 +597,11 @@ export default function FacturasProveedorPage() {
 
   function buildPayload() {
     return {
-      tipo: "FACTURA",
+      tipo: tipoFijo,
       numero_proveedor: fNumProv.trim() || null,
       fecha: fFecha,
       fecha_vencimiento: fVencimiento || null,
+      factura_afectada_id: fFacturaAfectadaId || null,
       condicion_pago_id: fCondicionPagoId || null,
       tercero_id: fTerceroId,
       moneda_id: fMonedaId,
@@ -605,8 +632,9 @@ export default function FacturasProveedorPage() {
 
   async function guardar(contabilizar = false) {
     if (!fTerceroId) { setError("Selecciona el proveedor"); return; }
-    if (!fVencimiento) { setError("La fecha de vencimiento es obligatoria"); return; }
-    if (fVencimiento < fFecha) { setError("La fecha de vencimiento no puede ser anterior a la fecha del documento"); return; }
+    if (esNota && !fFacturaAfectadaId) { setError("Selecciona la factura afectada"); return; }
+    if (requiereVenc && !fVencimiento) { setError("La fecha de vencimiento es obligatoria"); return; }
+    if (fVencimiento && fVencimiento < fFecha) { setError("La fecha de vencimiento no puede ser anterior a la fecha del documento"); return; }
     if (lineas.length === 0) { setError("Agrega al menos una línea"); return; }
     for (const l of lineas) {
       if (!l.concepto_id && !l.cuenta_gasto_id) { setError("Cada línea debe tener concepto o cuenta"); return; }
@@ -660,7 +688,7 @@ export default function FacturasProveedorPage() {
   // El backend pagina; se ordena la página cargada antes de pintarla.
   const ordenada = ordenarFilas(lista, orden, {
     numero:          (d) => d.numero,
-    numeroProveedor: (d) => d.numero_proveedor,
+    numeroProveedor: (d) => esNota ? d.factura_afectada_numero : d.numero_proveedor,
     fecha:           (d) => d.fecha,
     vencimiento:     (d) => d.fecha_vencimiento,
     proveedor:       (d) => d.tercero_nombre,
@@ -679,12 +707,12 @@ export default function FacturasProveedorPage() {
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
-          <p className="text-[12px] text-gray-400 mt-0.5">Facturas de compra a proveedores</p>
+          <p className="text-[12px] text-gray-400 mt-0.5">{esNota ? `${singular.charAt(0).toUpperCase() + singular.slice(1)} de proveedor` : "Facturas de compra a proveedores"}</p>
         </div>
         <button onClick={abrirCrear}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nueva factura
+          {nuevoLabel}
         </button>
       </div>
 
@@ -740,7 +768,7 @@ export default function FacturasProveedorPage() {
             <thead className="sticky top-0 bg-white z-10 border-b border-gray-100">
               <tr>
                 <Th campo="numero"          orden={orden} alternar={alternar} className="whitespace-nowrap">Número</Th>
-                <Th campo="numeroProveedor" orden={orden} alternar={alternar} className="whitespace-nowrap">Nº proveedor</Th>
+                <Th campo="numeroProveedor" orden={orden} alternar={alternar} className="whitespace-nowrap">{esNota ? "Factura afectada" : "Nº proveedor"}</Th>
                 <Th campo="fecha"           orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
                 <Th campo="vencimiento"     orden={orden} alternar={alternar} className="whitespace-nowrap">Vencimiento</Th>
                 <Th campo="proveedor"       orden={orden} alternar={alternar} className="whitespace-nowrap">Proveedor</Th>
@@ -766,7 +794,11 @@ export default function FacturasProveedorPage() {
                         {d.numero}
                       </button>
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-gray-500 text-[11px]">{d.numero_proveedor ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-3 py-2.5 font-mono text-gray-500 text-[11px]">
+                      {esNota
+                        ? (d.factura_afectada_numero ?? <span className="text-gray-300">—</span>)
+                        : (d.numero_proveedor ?? <span className="text-gray-300">—</span>)}
+                    </td>
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       {d.fecha_vencimiento ? (
@@ -834,7 +866,7 @@ export default function FacturasProveedorPage() {
 
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <h2 className="text-[14px] font-semibold text-gray-800">
-                {editandoId ? `Editar factura de proveedor${editandoNumero ? ` — ${editandoNumero}` : ""}` : "Nueva factura de proveedor"}
+                {editandoId ? `Editar ${singular}${editandoNumero ? ` — ${editandoNumero}` : ""}` : nuevoLabel}
               </h2>
               <button onClick={cerrar} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -873,7 +905,7 @@ export default function FacturasProveedorPage() {
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Vencimiento *</label>
+                    <label className={lbl}>Vencimiento {requiereVenc ? "*" : ""}</label>
                     <input type="date" value={fVencimiento} onChange={(e) => { setFVencimiento(e.target.value); setFCondicionPagoId(""); }} className={inp} />
                   </div>
                   <div>
@@ -897,9 +929,21 @@ export default function FacturasProveedorPage() {
                     <TerceroSearch display={fTerceroDisplay}
                       onChange={(id, display) => { setFTerceroId(id); setFTerceroDisplay(display); }} />
                   </div>
+                  {esNota && (
+                    <div className="col-span-5">
+                      <label className={lbl}>Factura afectada *</label>
+                      <select value={fFacturaAfectadaId} onChange={(e) => setFFacturaAfectadaId(e.target.value)} className={inp} disabled={!fTerceroId}>
+                        <option value="">{fTerceroId ? "— Seleccionar factura —" : "Selecciona primero el proveedor"}</option>
+                        {facturasAfectadas.map((f) => (
+                          <option key={f.id} value={f.id}>{f.numero} · {f.fecha} · saldo ${parseFloat(f.saldo).toLocaleString("es-CO")}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-1">La nota debe referenciar la factura del proveedor (requisito DIAN).</p>
+                    </div>
+                  )}
                   <div className="col-span-5">
                     <label className={lbl}>Descripción</label>
-                    <input value={fDescripcion} onChange={(e) => setFDescripcion(e.target.value)} placeholder="Concepto general de la factura…" className={inp} />
+                    <input value={fDescripcion} onChange={(e) => setFDescripcion(e.target.value)} placeholder="Concepto general…" className={inp} />
                   </div>
                 </div>
               </div>
@@ -1085,7 +1129,7 @@ export default function FacturasProveedorPage() {
                 {saving ? "Guardando..." : "Guardar borrador"}
               </button>
               <button onClick={() => guardar(true)} disabled={saving}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                 {saving ? "Procesando..." : "Guardar y contabilizar"}
               </button>
             </div>
@@ -1130,6 +1174,12 @@ export default function FacturasProveedorPage() {
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Moneda</p>
                   <p className="text-[12px] text-gray-700">{activo.moneda_codigo}{activo.trm ? ` · TRM ${fmt(activo.trm)}` : ""}</p>
                 </div>
+                {activo.factura_afectada_numero && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Factura afectada</p>
+                    <p className="text-[12px] font-mono text-blue-600">{activo.factura_afectada_numero}</p>
+                  </div>
+                )}
                 {activo.descripcion && (
                   <div className="col-span-2">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-0.5">Descripción</p>
@@ -1204,6 +1254,35 @@ export default function FacturasProveedorPage() {
                   <span className="text-[18px] font-bold font-mono text-blue-800">{fmt(activo.saldo)}</span>
                 </div>
               )}
+
+              {/* Aplicaciones recibidas (comprobantes de pago, notas crédito, anticipos) */}
+              {cruces.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">Aplicaciones recibidas</p>
+                  <table className="w-full text-[11px] border border-gray-200 rounded-lg overflow-hidden">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        {["Documento", "Tipo", "Fecha", "Valor aplicado"].map((h) => (
+                          <th key={h} className={`px-2 py-1.5 text-[10px] font-bold uppercase text-gray-400 ${h === "Valor aplicado" ? "text-right" : "text-left"}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {cruces.map((c) => {
+                        const label = c.tipo === "COMPROBANTE" ? "Comprobante" : c.tipo === "NOTA_CREDITO" ? "Nota crédito" : c.tipo === "ANTICIPO" ? "Anticipo" : c.tipo;
+                        return (
+                          <tr key={c.id}>
+                            <td className="px-2 py-1.5 font-mono text-blue-600">{c.numero}</td>
+                            <td className="px-2 py-1.5 text-gray-600">{label}</td>
+                            <td className="px-2 py-1.5 text-gray-500">{c.fecha}</td>
+                            <td className="px-2 py-1.5 text-right font-mono font-semibold">{fmt(c.valor)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
@@ -1216,7 +1295,7 @@ export default function FacturasProveedorPage() {
               )}
               {activo.estado === "borrador" && (
                 <button onClick={contabilizarDoc} disabled={saving}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                  className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                   {saving ? "Procesando..." : "Contabilizar"}
                 </button>
               )}
@@ -1339,4 +1418,8 @@ export default function FacturasProveedorPage() {
       {preview && <AsientoModal data={preview} real={previewReal} onClose={() => setPreview(null)} />}
     </div>
   );
+}
+
+export default function FacturasProveedorPage() {
+  return <FacturasProveedorView />;
 }

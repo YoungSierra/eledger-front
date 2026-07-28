@@ -17,6 +17,7 @@ interface ResumenItem {
   dias_31_60: string;
   dias_61_90: string;
   mas_90: string;
+  a_favor: string;
   total: string;
 }
 
@@ -28,6 +29,7 @@ interface ResumenResponse {
   total_31_60: string;
   total_61_90: string;
   total_mas_90: string;
+  total_a_favor: string;
   total_general: string;
 }
 
@@ -133,16 +135,17 @@ export default function SaldosProveedoresPage() {
 
       {/* Cards */}
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4 shrink-0 no-print">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-4 shrink-0 no-print">
           {[
             { label: "Corriente",    value: data.total_corriente, hex: "#059669", icon: ICONS.check },
             { label: "1 – 30 días",  value: data.total_1_30,      hex: "#d97706", icon: ICONS.clock },
             { label: "31 – 60 días", value: data.total_31_60,     hex: "#ea580c", icon: ICONS.clock },
             { label: "61 – 90 días", value: data.total_61_90,     hex: "#dc2626", icon: ICONS.clock },
             { label: "+ 90 días",    value: data.total_mas_90,    hex: "#b91c1c", icon: ICONS.alert },
+            { label: "A favor",      value: data.total_a_favor,   hex: "#2563eb", icon: ICONS.sum   },
             { label: "Total",        value: data.total_general,   hex: "#475569", icon: ICONS.sum   },
           ].map(({ label, value, hex, icon }) => (
-            <StatCard key={label} label={label} value={fmtTotal(value)} hex={hex} icon={icon} mono />
+            <StatCard key={label} label={label} value={label === "A favor" && parseFloat(String(value)) ? `(${fmtTotal(value)})` : fmtTotal(value)} hex={hex} icon={icon} mono />
           ))}
         </div>
       )}
@@ -160,14 +163,15 @@ export default function SaldosProveedoresPage() {
                 <th className={celdaHeader}>31 – 60d</th>
                 <th className={celdaHeader}>61 – 90d</th>
                 <th className={celdaHeader}>+ 90d</th>
+                <th className={`${celdaHeader} text-blue-600`}>A favor</th>
                 <th className={`${celdaHeader} text-gray-600`}>Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : sinSaldo ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Sin saldos pendientes al {fechaCorte}</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Sin saldos pendientes al {fechaCorte}</td></tr>
               ) : data?.items.map((item) => (
                 <tr key={item.tercero_id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="px-3 py-2.5">
@@ -188,6 +192,7 @@ export default function SaldosProveedoresPage() {
                   <td className={`${celda} text-orange-700`}>{fmt(item.dias_31_60)}</td>
                   <td className={`${celda} text-red-600`}>{fmt(item.dias_61_90)}</td>
                   <td className={`${celda} text-red-800 font-semibold`}>{fmt(item.mas_90)}</td>
+                  <td className={`${celda} text-blue-600`}>{parseFloat(item.a_favor) ? `(${fmt(item.a_favor)})` : "—"}</td>
                   <td className={`${celda} text-gray-800 font-semibold`}>{fmtTotal(item.total)}</td>
                 </tr>
               ))}
@@ -201,6 +206,7 @@ export default function SaldosProveedoresPage() {
                   <td className={`${celda} text-orange-700 font-bold`}>{fmtTotal(data.total_31_60)}</td>
                   <td className={`${celda} text-red-600 font-bold`}>{fmtTotal(data.total_61_90)}</td>
                   <td className={`${celda} text-red-800 font-bold`}>{fmtTotal(data.total_mas_90)}</td>
+                  <td className={`${celda} text-blue-600 font-bold`}>{parseFloat(data.total_a_favor) ? `(${fmtTotal(data.total_a_favor)})` : "—"}</td>
                   <td className={`${celda} text-gray-800 font-bold`}>{fmtTotal(data.total_general)}</td>
                 </tr>
               </tfoot>

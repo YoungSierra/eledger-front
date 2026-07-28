@@ -6,6 +6,8 @@ import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+
 interface Banco { id: string; nombre: string; }
 interface Moneda { id: string; codigo: string; nombre: string; }
 interface CuentaBancaria {
@@ -18,6 +20,13 @@ interface CuentaBancaria {
   activo: boolean;
 }
 interface Cuenta { id: string; codigo: string; nombre: string; }
+interface MovItem { fecha: string; asiento_numero: number | null; documento_numero: string | null; descripcion: string | null; debito: string; credito: string; saldo: string; }
+interface MovimientosResp {
+  cuenta_id: string; cuenta_nombre: string; cuenta_contable_codigo: string | null;
+  saldo_inicial: string; saldo_final: string; total_debito: string; total_credito: string;
+  items: MovItem[]; aviso: string | null;
+}
+function fmtM(v: string | number) { return parseFloat(String(v)).toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 
 const TIPO_STYLE: Record<string, string> = {
   CORRIENTE: "bg-blue-50 text-blue-700",
@@ -93,6 +102,37 @@ export default function CuentasBancariasPage() {
   const [form, setForm]         = useState(EMPTY);
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
+
+  // Libro de movimientos
+  const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+  const [movModal, setMovModal] = useState<CuentaBancaria | null>(null);
+  const [movDesde, setMovDesde] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0,10); });
+  const [movHasta, setMovHasta] = useState(hoyISO);
+  const [movData, setMovData]   = useState<MovimientosResp | null>(null);
+  const [movLoading, setMovLoading] = useState(false);
+
+  async function cargarMov(cuentaId: string) {
+    setMovLoading(true);
+    try {
+      const q = new URLSearchParams();
+      if (movDesde) q.set("fecha_desde", movDesde);
+      if (movHasta) q.set("fecha_hasta", movHasta);
+      const r = await apiFetch<MovimientosResp>(`/bancos/cuentas/${cuentaId}/movimientos?${q}`);
+      setMovData(r);
+    } catch { setMovData(null); } finally { setMovLoading(false); }
+  }
+  function abrirMovimientos(c: CuentaBancaria) { setMovModal(c); setMovData(null); cargarMov(c.id); }
+  async function exportarMovExcel(cuentaId: string) {
+    const token = localStorage.getItem("access_token");
+    const q = new URLSearchParams();
+    if (movDesde) q.set("fecha_desde", movDesde);
+    if (movHasta) q.set("fecha_hasta", movHasta);
+    const res = await fetch(`${BASE_URL}/bancos/cuentas/${cuentaId}/movimientos/excel?${q}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `libro_bancos_${movHasta}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   useEffect(() => {
     Promise.all([
@@ -243,6 +283,10 @@ export default function CuentasBancariasPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 justify-end">
+                      <button onClick={() => abrirMovimientos(c)} title="Movimientos"
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                      </button>
                       <button onClick={() => abrirEditar(c)} title="Editar"
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -342,6 +386,94 @@ export default function CuentasBancariasPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Modal — Libro de movimientos */}
+      {movModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl flex flex-col"
+            style={{ width: "min(1200px, 96vw)", minWidth: "min(720px, 92vw)", height: "min(88vh, 760px)", minHeight: "24rem", maxWidth: "97vw", maxHeight: "94vh", resize: "both", overflow: "hidden" }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+              <div>
+                <h2 className="text-[14px] font-semibold text-gray-800">Libro de movimientos</h2>
+                <p className="text-[11px] text-gray-400 mt-0.5">{movModal.banco_nombre} — {movModal.nombre} ({movModal.numero})</p>
+              </div>
+              <button onClick={() => setMovModal(null)} className="text-gray-400 hover:text-gray-600">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <div className="flex items-end gap-2 px-6 py-3 border-b border-gray-100 shrink-0 bg-gray-50/50">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Desde</label>
+                <input type="date" value={movDesde} onChange={(e) => setMovDesde(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px]" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Hasta</label>
+                <input type="date" value={movHasta} onChange={(e) => setMovHasta(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px]" />
+              </div>
+              <button onClick={() => cargarMov(movModal.id)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">Consultar</button>
+              <button onClick={() => exportarMovExcel(movModal.id)} disabled={!movData || movData.items.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-green-200 text-green-700 hover:bg-green-50 text-[12px] font-medium rounded-lg disabled:opacity-40">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                Excel
+              </button>
+              {movData && (
+                <div className="ml-auto text-right text-[11px] text-gray-500">
+                  <div>Saldo inicial: <span className="font-mono font-semibold text-gray-700">{fmtM(movData.saldo_inicial)}</span></div>
+                  <div>Saldo final: <span className="font-mono font-bold text-blue-700">{fmtM(movData.saldo_final)}</span></div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {movLoading ? (
+                <p className="text-center py-10 text-[12px] text-gray-400">Cargando...</p>
+              ) : movData?.aviso ? (
+                <p className="text-center py-10 text-[12px] text-amber-600">{movData.aviso}</p>
+              ) : !movData || movData.items.length === 0 ? (
+                <p className="text-center py-10 text-[12px] text-gray-400">Sin movimientos en el rango</p>
+              ) : (
+                <table className="w-full text-[12px]">
+                  <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Fecha</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Documento</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Descripción</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">Débito</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">Crédito</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    <tr className="bg-gray-50/60">
+                      <td colSpan={5} className="px-3 py-2 text-[11px] text-gray-500 italic">Saldo inicial</td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold text-gray-700">{fmtM(movData.saldo_inicial)}</td>
+                    </tr>
+                    {movData.items.map((m, i) => (
+                      <tr key={i} className="hover:bg-gray-50/60">
+                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{m.fecha}</td>
+                        <td className="px-3 py-2 font-mono text-[11px] text-blue-600 whitespace-nowrap">{m.documento_numero ?? `#${m.asiento_numero ?? ""}`}</td>
+                        <td className="px-3 py-2 text-gray-600 max-w-[280px] truncate">{m.descripcion ?? "—"}</td>
+                        <td className="px-3 py-2 text-right font-mono text-green-700">{parseFloat(m.debito) ? fmtM(m.debito) : ""}</td>
+                        <td className="px-3 py-2 text-right font-mono text-red-600">{parseFloat(m.credito) ? fmtM(m.credito) : ""}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800">{fmtM(m.saldo)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t-2 border-gray-200 bg-gray-50">
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2 text-[11px] font-bold uppercase text-gray-500">Totales del período</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-green-700">{fmtM(movData.total_debito)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-red-600">{fmtM(movData.total_credito)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-blue-700">{fmtM(movData.saldo_final)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

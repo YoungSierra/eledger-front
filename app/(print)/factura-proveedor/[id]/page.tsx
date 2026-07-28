@@ -18,13 +18,14 @@ interface Linea {
 }
 
 interface Factura {
-  id: string; numero: string; numero_proveedor: string | null;
+  id: string; numero: string; tipo: string; numero_proveedor: string | null;
   fecha: string; fecha_vencimiento: string | null;
   tercero_nit: string | null; tercero_nombre: string | null;
   moneda_codigo: string; trm: string | null;
   subtotal: string; total_iva: string; total_retenciones: string; total: string;
   descripcion: string | null; estado: string;
   asiento_id: string | null;
+  factura_afectada_numero: string | null;
   lineas: Linea[];
   creado_por: string;
 }
@@ -125,7 +126,7 @@ export default function ImprimirFacturaProveedorPage({ params }: { params: Promi
 
           <div style={{ textAlign: "right" }}>
             <div style={{ border: `2px solid ${s.thick}`, borderRadius: 8, padding: "10px 18px", display: "inline-block", minWidth: 180, textAlign: "right" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: s.mid }}>Factura Proveedor</div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: s.mid }}>{factura.tipo === "NOTA_CREDITO" ? "Nota Crédito" : factura.tipo === "NOTA_DEBITO" ? "Nota Débito" : "Factura Proveedor"}</div>
               <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, fontFamily: "monospace", color: s.black }}>{factura.numero}</div>
               {factura.numero_proveedor && (
                 <div style={{ fontSize: 10, color: s.mid, marginTop: 2 }}>Nº prov: {factura.numero_proveedor}</div>
@@ -144,11 +145,19 @@ export default function ImprimirFacturaProveedorPage({ params }: { params: Promi
           </div>
         </div>
 
-        {/* Proveedor */}
-        <div style={{ border: `1px solid ${s.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 20 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: s.light, marginBottom: 4 }}>Proveedor</div>
-          <div style={{ fontWeight: 600, fontSize: 12 }}>{factura.tercero_nombre ?? "—"}</div>
-          {factura.tercero_nit && <div style={{ fontSize: 10, color: s.mid }}>NIT / CC: {factura.tercero_nit}</div>}
+        {/* Proveedor (+ factura afectada al lado en notas) */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <div style={{ flex: factura.factura_afectada_numero ? "0 0 78%" : "1 1 100%", border: `1px solid ${s.border}`, borderRadius: 8, padding: "10px 14px" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: s.light, marginBottom: 4 }}>Proveedor</div>
+            <div style={{ fontWeight: 600, fontSize: 12 }}>{factura.tercero_nombre ?? "—"}</div>
+            {factura.tercero_nit && <div style={{ fontSize: 10, color: s.mid }}>NIT / CC: {factura.tercero_nit}</div>}
+          </div>
+          {factura.factura_afectada_numero && (
+            <div style={{ flex: "1 1 20%", border: `1px solid ${s.border}`, borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: s.light, marginBottom: 4 }}>Factura afectada</div>
+              <div style={{ fontWeight: 600, fontSize: 12, fontFamily: "monospace" }}>{factura.factura_afectada_numero}</div>
+            </div>
+          )}
         </div>
 
         {factura.descripcion && (

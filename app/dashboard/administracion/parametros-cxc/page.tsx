@@ -16,6 +16,12 @@ interface CxcParametro {
   cuenta_iva_display: string | null;
   cuenta_valores_terceros_id: string | null;
   cuenta_valores_terceros_display: string | null;
+  cuenta_anticipos_id: string | null;
+  cuenta_anticipos_display: string | null;
+  cuenta_descuentos_id: string | null;
+  cuenta_descuentos_display: string | null;
+  cuenta_aprovechamientos_id: string | null;
+  cuenta_aprovechamientos_display: string | null;
 }
 
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
@@ -86,6 +92,12 @@ export default function ParametrosCxcPage() {
   const [ivaDisp, setIvaDisp]           = useState<string | null>(null);
   const [vtId, setVtId]                 = useState<string | null>(null);
   const [vtDisp, setVtDisp]             = useState<string | null>(null);
+  const [antId, setAntId]               = useState<string | null>(null);
+  const [antDisp, setAntDisp]           = useState<string | null>(null);
+  const [descId, setDescId]             = useState<string | null>(null);
+  const [descDisp, setDescDisp]         = useState<string | null>(null);
+  const [aprovId, setAprovId]           = useState<string | null>(null);
+  const [aprovDisp, setAprovDisp]       = useState<string | null>(null);
 
   useEffect(() => { cargar(); }, []);
 
@@ -98,6 +110,9 @@ export default function ParametrosCxcPage() {
       setIngresosId(d.cuenta_ingresos_id);   setIngresosDisp(d.cuenta_ingresos_display);
       setIvaId(d.cuenta_iva_id);             setIvaDisp(d.cuenta_iva_display);
       setVtId(d.cuenta_valores_terceros_id); setVtDisp(d.cuenta_valores_terceros_display);
+      setAntId(d.cuenta_anticipos_id); setAntDisp(d.cuenta_anticipos_display);
+      setDescId(d.cuenta_descuentos_id); setDescDisp(d.cuenta_descuentos_display);
+      setAprovId(d.cuenta_aprovechamientos_id); setAprovDisp(d.cuenta_aprovechamientos_display);
     } finally { setLoading(false); }
   }
 
@@ -111,6 +126,9 @@ export default function ParametrosCxcPage() {
           cuenta_ingresos_id: ingresosId,
           cuenta_iva_id: ivaId,
           cuenta_valores_terceros_id: vtId,
+          cuenta_anticipos_id: antId,
+          cuenta_descuentos_id: descId,
+          cuenta_aprovechamientos_id: aprovId,
         }),
       });
       setOk(true);
@@ -166,6 +184,27 @@ export default function ParametrosCxcPage() {
             ayuda="Pasivo por dinero cobrado al cliente que se traslada a un tercero (aduana, bodega). Ej: 2815 — Ingresos recibidos para terceros"
             valor={vtId} display={vtDisp}
             onChange={(id, d) => { setVtId(id); setVtDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta anticipos de clientes"
+            ayuda="Pasivo por dinero recibido del cliente antes de facturar. Ej: 2705 — Anticipos y avances recibidos"
+            valor={antId} display={antDisp}
+            onChange={(id, d) => { setAntId(id); setAntDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta descuentos"
+            ayuda="Gasto/menor ingreso cuando el cliente paga menos y se salda la factura. Ej: 530535 — Descuentos comerciales condicionados"
+            valor={descId} display={descDisp}
+            onChange={(id, d) => { setDescId(id); setDescDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta aprovechamientos"
+            ayuda="Ingreso cuando el cliente paga de más (sobrante del recibo). Ej: 425035 — Aprovechamientos"
+            valor={aprovId} display={aprovDisp}
+            onChange={(id, d) => { setAprovId(id); setAprovDisp(d); }}
           />
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

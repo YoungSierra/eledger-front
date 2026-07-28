@@ -49,6 +49,15 @@ interface RetForm {
 interface AplicacionForm {
   factura_id: string; checked: boolean; valor: string;
 }
+interface AnticipoDisponible {
+  id: string; numero: string; fecha: string; total: string; saldo: string;
+}
+interface AnticipoForm {
+  anticipo_id: string; checked: boolean; valor: string;
+}
+interface AnticipoAplicado {
+  anticipo_id: string; numero: string; fecha: string; valor: string;
+}
 interface AplicacionPendiente {
   id: string; factura_id: string; numero: string; fecha: string;
   fecha_vencimiento: string | null; total: string; saldo_original: string; valor: string;
@@ -160,6 +169,10 @@ export default function RecibosPage() {
   const [facturas, setFacturas]   = useState<FacturaPendiente[]>([]);
   const [loadingFac, setLoadingFac] = useState(false);
 
+  // Anticipos disponibles del cliente
+  const [anticiposDisp, setAnticiposDisp] = useState<AnticipoDisponible[]>([]);
+  const [anticiposForm, setAnticiposForm] = useState<AnticipoForm[]>([]);
+
   // Campos del formulario
   const [fecha, setFecha]             = useState(new Date().toISOString().slice(0, 10));
   const [terceroId, setTerceroId]     = useState("");
@@ -209,7 +222,7 @@ export default function RecibosPage() {
 
   useEffect(() => {
     if (reciboId) return;  // en modo edición abrirDetalle ya carga facturas y aplicaciones
-    setFacturas([]); setAplicaciones([]);
+    setFacturas([]); setAplicaciones([]); setAnticiposDisp([]); setAnticiposForm([]);
     if (!terceroId) return;
     setLoadingFac(true);
     apiFetch<FacturaPendiente[]>(`/cxc/facturas-pendientes?tercero_id=${terceroId}`)
@@ -219,6 +232,12 @@ export default function RecibosPage() {
       })
       .catch(() => {})
       .finally(() => setLoadingFac(false));
+    apiFetch<AnticipoDisponible[]>(`/cxc/anticipos-disponibles?tercero_id=${terceroId}`)
+      .then(ants => {
+        setAnticiposDisp(ants);
+        setAnticiposForm(ants.map(a => ({ anticipo_id: a.id, checked: false, valor: "" })));
+      })
+      .catch(() => {});
   }, [terceroId, reciboId]);
 
   // ── Cálculos en tiempo real ──────────────────────────────────────────────────
@@ -229,10 +248,16 @@ export default function RecibosPage() {
   }, 0);
 
   const valorRecibido  = dec(valorRecibidoInput);
-  const presupuesto    = valorRecibido + totalRetenciones;   // total disponible para aplicar
+  const totalAnticipos = anticiposForm.filter(a => a.checked || dec(a.valor) > 0).reduce((s, a) => s + dec(a.valor), 0);
+  const presupuesto    = valorRecibido + totalRetenciones + totalAnticipos;   // total disponible para aplicar
   const totalAplicado  = aplicaciones.filter(a => a.checked || dec(a.valor) > 0).reduce((s, a) => s + dec(a.valor), 0);
   const disponible     = presupuesto - totalAplicado;        // lo que falta por aplicar
-  const reciboCuadra   = valorRecibido > 0 && Math.abs(disponible) < 0.01;
+  const ajuste         = totalAplicado - presupuesto;         // >0 descuento, <0 aprovechamiento
+  const hayAjuste      = Math.abs(ajuste) >= 0.01;
+  const reciboCuadra   = (valorRecibido + totalAnticipos) > 0 && totalAplicado > 0;
+  const totalFacSaldo    = facturas.reduce((s, f) => s + dec(f.saldo), 0);   // saldo total adeudado por el cliente
+  const totalFacTotal    = facturas.reduce((s, f) => s + dec(f.total), 0);
+  const totalFacAplicado = facturas.reduce((s, f) => s + dec(f.aplicado), 0);
 
   // ── Al hacer check sin valor ─────────────────────────────────────────────────
 
@@ -265,6 +290,32 @@ export default function RecibosPage() {
     setAplicaciones(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], valor: limitado };  // checked no se toca
+      return next;
+    });
+  }
+
+  // ── Anticipos como fuente ──────────────────────────────────────────────────
+
+  function toggleAnticipo(idx: number, checked: boolean) {
+    const ant = anticiposDisp[idx];
+    setAnticiposForm(prev => {
+      const next = [...prev];
+      if (checked) {
+        const yaEscrito = dec(next[idx].valor);
+        next[idx] = { ...next[idx], checked: true, valor: yaEscrito > 0 ? next[idx].valor : ant.saldo };
+      } else {
+        next[idx] = { ...next[idx], checked: false, valor: "" };
+      }
+      return next;
+    });
+  }
+
+  function setValorAnticipo(idx: number, val: string, saldoMax: number) {
+    const num = dec(val);
+    const limitado = num > saldoMax ? String(saldoMax) : val;
+    setAnticiposForm(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], valor: limitado };
       return next;
     });
   }
@@ -326,6 +377,7 @@ export default function RecibosPage() {
     setMonedaId(func?.id || "");
     setValorRecibidoInput(""); setDescripcion("");
     setRetenciones([]); setAplicaciones([]); setFacturas([]);
+    setAnticiposDisp([]); setAnticiposForm([]);
     setError("");
     setModalOpen(true);
   }
@@ -406,6 +458,26 @@ export default function RecibosPage() {
         const ap = appsMap.get(f.id);
         return { factura_id: f.id, checked: !!ap, valor: ap ? ap.valor : "" };
       }));
+
+      // Anticipos
+      const antsApp = await apiFetch<AnticipoAplicado[]>(`/cxc/${recibo.id}/anticipos-aplicados`);
+      if (recibo.estado !== "borrador") {
+        const disp = antsApp.map(a => ({ id: a.anticipo_id, numero: a.numero, fecha: a.fecha, total: a.valor, saldo: a.valor }));
+        setAnticiposDisp(disp);
+        setAnticiposForm(antsApp.map(a => ({ anticipo_id: a.anticipo_id, checked: true, valor: a.valor })));
+      } else {
+        const antsDisp = await apiFetch<AnticipoDisponible[]>(`/cxc/anticipos-disponibles?tercero_id=${doc.tercero_id}&excluir_recibo_id=${recibo.id}`);
+        const dispIds = new Set(antsDisp.map(a => a.id));
+        const extra = antsApp.filter(a => !dispIds.has(a.anticipo_id))
+          .map(a => ({ id: a.anticipo_id, numero: a.numero, fecha: a.fecha, total: a.valor, saldo: a.valor }));
+        const todos = [...antsDisp, ...extra];
+        const appMap = new Map(antsApp.map(a => [a.anticipo_id, a]));
+        setAnticiposDisp(todos);
+        setAnticiposForm(todos.map(a => {
+          const ap = appMap.get(a.id);
+          return { anticipo_id: a.id, checked: !!ap, valor: ap ? ap.valor : "" };
+        }));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar el recibo");
     } finally {
@@ -429,6 +501,9 @@ export default function RecibosPage() {
         cuenta_id: r.cuenta_id,
       })),
       aplicaciones: apls.map(a => ({ factura_id: a.factura_id, valor: dec(a.valor) })),
+      anticipos: anticiposForm
+        .filter(a => a.checked || dec(a.valor) > 0)
+        .map(a => ({ anticipo_id: a.anticipo_id, valor: dec(a.valor) })),
     };
   }
 
@@ -453,13 +528,13 @@ export default function RecibosPage() {
   async function guardarInterno(): Promise<string | null> {
     if (!terceroId) { setError("Selecciona un cliente"); return null; }
     if (!banCuentaId) { setError("Selecciona la cuenta bancaria"); return null; }
-    if (!valorRecibido || valorRecibido <= 0) { setError("Ingresa el valor recibido en banco"); return null; }
+    if (valorRecibido + totalAnticipos <= 0) { setError("Ingresa el valor recibido o aplica un anticipo"); return null; }
     const rets = retenciones.filter(r => dec(r.base) > 0);
     if (rets.some(r => !r.concepto))  { setError("Selecciona el tipo para todas las retenciones"); return null; }
     if (rets.some(r => !r.cuenta_id)) { setError("Una o más retenciones no tienen cuenta contable configurada en el catálogo. Ve a Contabilidad → Retenciones y asigna la cuenta de ventas."); return null; }
     const apls = aplicaciones.filter(a => (a.checked || dec(a.valor) > 0));
-    if (apls.length === 0) { setError("Selecciona al menos una factura a aplicar"); return null; }
-    if (!reciboCuadra) { setError(`Aún quedan $${fmt(disponible, decimalesFuncional)} sin aplicar`); return null; }
+    if (apls.length === 0) { setError("Selecciona al menos un documento a aplicar"); return null; }
+    if (totalAplicado <= 0) { setError("El total aplicado a facturas debe ser mayor que cero"); return null; }
 
     const payload = buildPayload(apls, rets);
     if (reciboId) {
@@ -583,10 +658,9 @@ export default function RecibosPage() {
                     </button>
                   )}
                   {(r.estado === "contabilizado" || r.estado === "anulado") && (
-                    <button onClick={() => abrirDetalle(r)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                      Ver
+                    <button onClick={() => abrirDetalle(r)} title="Ver"
+                      className="inline-flex items-center justify-center w-7 h-7 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
                   )}
                 </td>
@@ -756,6 +830,42 @@ export default function RecibosPage() {
                   })}
                 </div>
 
+                {/* Anticipos del cliente */}
+                {anticiposDisp.length > 0 && (
+                  <div>
+                    <span className={lbl}>Anticipos del cliente</span>
+                    <div className="space-y-1.5">
+                      {anticiposDisp.map((a, i) => {
+                        const af = anticiposForm[i];
+                        const activo = af?.checked || dec(af?.valor) > 0;
+                        return (
+                          <div key={a.id} className={`p-2 rounded-lg border ${activo ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-100"}`}>
+                            <div className="flex items-center gap-1.5">
+                              {!soloLectura && (
+                                <input type="checkbox" checked={af?.checked || false}
+                                  onChange={e => toggleAnticipo(i, e.target.checked)}
+                                  className="w-3.5 h-3.5 rounded accent-blue-600" />
+                              )}
+                              <span className="font-mono text-[11px] text-gray-700 flex-1">{a.numero}</span>
+                              {!soloLectura && <span className="text-[10px] text-gray-400">disp. ${fmt(a.saldo, decimalesFuncional)}</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px] text-gray-400 w-14 shrink-0">Aplicar</span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">$</span>
+                                <MontoInput value={af?.valor || ""} onChange={v => setValorAnticipo(i, v, dec(a.saldo))}
+                                  max={dec(a.saldo)}
+                                  decimales={decimalesFuncional} disabled={soloLectura || !af?.checked}
+                                  className={`w-full pl-5 pr-2 py-1 border rounded text-[11px] text-right focus:outline-none focus:ring-1 focus:ring-blue-500 ${(soloLectura || !af?.checked) ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-200 bg-white"}`} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Totales resumen */}
                 <div className="mt-auto pt-3 border-t border-gray-100 space-y-1.5 text-[11px]">
                   <div className="flex justify-between text-gray-500">
@@ -766,42 +876,51 @@ export default function RecibosPage() {
                     <span>+ Retenciones</span>
                     <span className="font-medium">${fmt(totalRetenciones, decimalesFuncional)}</span>
                   </div>
+                  {totalAnticipos > 0 && (
+                    <div className="flex justify-between text-blue-600">
+                      <span>+ Anticipos</span>
+                      <span className="font-medium">${fmt(totalAnticipos, decimalesFuncional)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-gray-500 border-t pt-1.5">
-                    <span>Total a aplicar</span>
+                    <span>Total recibido</span>
                     <span className="font-medium">${fmt(presupuesto, decimalesFuncional)}</span>
                   </div>
                   <div className="flex justify-between text-gray-500">
-                    <span>Aplicado</span>
+                    <span>Aplicado a facturas</span>
                     <span className="font-medium">${fmt(totalAplicado, decimalesFuncional)}</span>
                   </div>
-                  {!soloLectura && (
-                    <>
-                      <div className={`flex justify-between pt-1.5 border-t font-bold text-[12px] ${reciboCuadra ? "text-green-700" : disponible < 0 ? "text-red-600" : "text-blue-700"}`}>
-                        <span>Disponible</span>
-                        <span>${fmt(disponible, decimalesFuncional)}</span>
-                      </div>
-                      {disponible < 0 && <p className="text-[10px] text-red-500">Aplicado supera el total</p>}
-                      {reciboCuadra && <p className="text-[10px] text-green-600 font-medium">✓ Listo para guardar</p>}
-                    </>
-                  )}
+                  {hayAjuste ? (
+                    <div className={`flex justify-between pt-1.5 border-t font-bold text-[12px] ${ajuste > 0 ? "text-orange-600" : "text-green-700"}`}>
+                      <span>{ajuste > 0 ? "Descuento" : "Aprovechamiento"}</span>
+                      <span>${fmt(Math.abs(ajuste), decimalesFuncional)}</span>
+                    </div>
+                  ) : !soloLectura ? (
+                    <div className="flex justify-between pt-1.5 border-t font-bold text-[12px] text-green-700">
+                      <span>Sin diferencia</span>
+                      <span>$0</span>
+                    </div>
+                  ) : null}
+                  {ajuste > 0 && <p className="text-[10px] text-orange-500">Se aplicó más de lo recibido → descuento concedido al cliente</p>}
+                  {ajuste < 0 && <p className="text-[10px] text-green-600">Se recibió más de lo aplicado → aprovechamiento (ingreso)</p>}
                 </div>
               </div>
 
               {/* Panel derecho — Facturas */}
               <div className="flex-1 lg:overflow-y-auto p-5">
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  {soloLectura ? "Facturas aplicadas" : "Facturas pendientes del cliente"}
+                  {soloLectura ? "Documentos aplicados" : "Documentos por cobrar del cliente"}
                 </p>
 
                 {!terceroId && (
-                  <p className="text-[12px] text-gray-400 italic">Selecciona un cliente para ver sus facturas pendientes</p>
+                  <p className="text-[12px] text-gray-400 italic">Selecciona un cliente para ver sus documentos por cobrar</p>
                 )}
                 {terceroId && loadingFac && (
                   <p className="text-[12px] text-gray-400">Cargando facturas…</p>
                 )}
                 {terceroId && !loadingFac && facturas.length === 0 && (
                   <p className="text-[12px] text-gray-400 italic">
-                    {soloLectura ? "Este recibo no tiene facturas aplicadas" : "Este cliente no tiene facturas con saldo pendiente"}
+                    {soloLectura ? "Este recibo no tiene documentos aplicados" : "Este cliente no tiene documentos con saldo pendiente"}
                   </p>
                 )}
 
@@ -810,7 +929,7 @@ export default function RecibosPage() {
                   <table className="w-full min-w-[560px] text-[11px]">
                     <thead>
                       <tr className="border-b border-gray-100">
-                        <th className="text-left py-2 text-[10px] font-semibold text-gray-400 uppercase">Factura</th>
+                        <th className="text-left py-2 text-[10px] font-semibold text-gray-400 uppercase">Documento</th>
                         <th className="text-left py-2 text-[10px] font-semibold text-gray-400 uppercase w-28">Vence</th>
                         <th className="text-right py-2 text-[10px] font-semibold text-gray-400 uppercase">Total</th>
                         <th className="text-right py-2 text-[10px] font-semibold text-gray-400 uppercase">Aplicado</th>
@@ -853,6 +972,7 @@ export default function RecibosPage() {
                                   <MontoInput
                                     value={ap?.valor || ""}
                                     onChange={v => setValorAplicacion(i, v, dec(f.saldo))}
+                                    max={dec(f.saldo)}
                                     decimales={decimalesFuncional}
                                     disabled={ap?.checked || false}
                                     placeholder={fmt(f.saldo, decimalesFuncional)}
@@ -874,6 +994,18 @@ export default function RecibosPage() {
                         );
                       })}
                     </tbody>
+                    {!soloLectura && (
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-200 font-bold text-gray-800">
+                          <td colSpan={2}></td>
+                          <td className="py-2 text-right">${fmt(totalFacTotal, decimalesFuncional)}</td>
+                          <td className="py-2 text-right">${fmt(totalFacAplicado, decimalesFuncional)}</td>
+                          <td className="py-2 text-right">${fmt(totalFacSaldo, decimalesFuncional)}</td>
+                          <td></td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                   </div>
                 )}
@@ -916,12 +1048,10 @@ export default function RecibosPage() {
                       className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
                       {saving ? "Guardando…" : reciboId ? "Actualizar borrador" : "Guardar borrador"}
                     </button>
-                    {reciboId && (
-                      <button onClick={contabilizar} disabled={saving || contabilizando || !reciboCuadra}
-                        className="px-5 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
-                        {contabilizando ? "Contabilizando…" : "Contabilizar"}
-                      </button>
-                    )}
+                    <button onClick={contabilizar} disabled={saving || contabilizando || !reciboCuadra || !terceroId || !banCuentaId}
+                      className="px-5 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg transition-colors">
+                      {contabilizando ? "Procesando…" : "Guardar y contabilizar"}
+                    </button>
                   </>
                 )}
               </div>

@@ -55,6 +55,9 @@ interface ListItem {
 }
 interface ListResponse { items: ListItem[]; total: number; pagina: number; por_pagina: number; }
 interface AplicacionForm { factura_id: string; checked: boolean; valor: string; }
+interface AnticipoDisponible { id: string; numero: string; fecha: string; total: string; saldo: string; }
+interface AnticipoForm { anticipo_id: string; checked: boolean; valor: string; }
+interface AnticipoAplicado { anticipo_id: string; numero: string; fecha: string; valor: string; }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -179,6 +182,8 @@ export default function ComprobantesPage() {
   const [facturasPend, setFacturasPend]   = useState<FacturaPendiente[]>([]);
   const [aplicaciones, setAplicaciones]   = useState<AplicacionForm[]>([]);
   const [cargandoFacs, setCargandoFacs]   = useState(false);
+  const [anticiposDisp, setAnticiposDisp] = useState<AnticipoDisponible[]>([]);
+  const [anticiposForm, setAnticiposForm] = useState<AnticipoForm[]>([]);
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -227,9 +232,9 @@ export default function ComprobantesPage() {
           // Ya tiene valor → solo marca el check
           next[idx] = { ...next[idx], checked: true };
         } else {
-          // Sin valor → auto-calcula con lo que queda disponible
+          // Sin valor → auto-calcula con el fondeo disponible (efectivo + anticipos)
           const yaAplicado = prev.reduce((s, a, i) => i === idx ? s : s + dec(a.valor), 0);
-          const disp = valorPagado - yaAplicado;
+          const disp = presupuesto - yaAplicado;
           const aplicar = Math.min(Math.max(0, disp), dec(fac.saldo));
           next[idx] = { ...next[idx], checked: true, valor: aplicar > 0 ? String(Math.round(aplicar * 10000) / 10000) : "" };
         }
@@ -251,7 +256,7 @@ export default function ComprobantesPage() {
 
   // ── Cargar facturas pendientes ─────────────────────────────────────────────
   async function cargarFacturasPend(terceroId: string, excluirId?: string) {
-    if (!terceroId) { setFacturasPend([]); setAplicaciones([]); return; }
+    if (!terceroId) { setFacturasPend([]); setAplicaciones([]); setAnticiposDisp([]); setAnticiposForm([]); return; }
     setCargandoFacs(true);
     try {
       const q = new URLSearchParams({ tercero_id: terceroId });
@@ -259,16 +264,49 @@ export default function ComprobantesPage() {
       const facs = await apiFetch<FacturaPendiente[]>(`/cxp/facturas-pendientes?${q}`);
       setFacturasPend(facs);
       setAplicaciones(facs.map((f) => ({ factura_id: f.id, checked: false, valor: "" })));
+      const ants = await apiFetch<AnticipoDisponible[]>(`/cxp/anticipos-disponibles?${q}`).catch(() => []);
+      setAnticiposDisp(ants);
+      setAnticiposForm(ants.map((a) => ({ anticipo_id: a.id, checked: false, valor: "" })));
     } finally { setCargandoFacs(false); }
+  }
+
+  function toggleAnticipo(idx: number, checked: boolean) {
+    const ant = anticiposDisp[idx];
+    setAnticiposForm((prev) => {
+      const next = [...prev];
+      if (checked) {
+        const yaEscrito = dec(next[idx].valor);
+        next[idx] = { ...next[idx], checked: true, valor: yaEscrito > 0 ? next[idx].valor : ant.saldo };
+      } else {
+        next[idx] = { ...next[idx], checked: false, valor: "" };
+      }
+      return next;
+    });
+  }
+  function setValorAnticipo(idx: number, val: string, saldoMax: number) {
+    const limitado = dec(val) > saldoMax ? String(saldoMax) : val;
+    setAnticiposForm((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], valor: limitado };
+      return next;
+    });
   }
 
   // ── Cálculos ───────────────────────────────────────────────────────────────
   const valorPagado   = dec(fValorPagado);
+  const totalAnticipos = anticiposForm
+    .filter((a) => a.checked || dec(a.valor) > 0)
+    .reduce((s, a) => s + dec(a.valor), 0);
   const totalAplicado = aplicaciones
     .filter((a) => a.checked || dec(a.valor) > 0)
     .reduce((s, a) => s + dec(a.valor), 0);
-  const disponible    = valorPagado - totalAplicado;
-  const cuadra        = valorPagado > 0 && Math.abs(disponible) < 0.01;
+  const presupuesto   = valorPagado + totalAnticipos;   // fondeo
+  const ajuste        = totalAplicado - presupuesto;    // >0 descuento (proveedor), <0 pérdida
+  const hayAjuste     = Math.abs(ajuste) >= 0.01;
+  const puedeGuardar  = presupuesto > 0 && totalAplicado > 0;
+  const totalFacTotal    = facturasPend.reduce((s, f) => s + dec(f.total), 0);
+  const totalFacAplicado = facturasPend.reduce((s, f) => s + dec(f.aplicado), 0);
+  const totalFacSaldo    = facturasPend.reduce((s, f) => s + dec(f.saldo), 0);
 
   // ── Abrir modal ────────────────────────────────────────────────────────────
   function abrirCrear(prefill?: { id: string; display: string }) {
@@ -276,7 +314,7 @@ export default function ComprobantesPage() {
     setFFecha(hoy); setFTerceroId(prefill?.id || ""); setFTerceroDisplay(prefill?.display || "");
     setFBanCuentaId(""); setFMonedaId(monedaFuncId); setFTrm("");
     setFValorPagado(""); setFDescripcion("");
-    setFacturasPend([]); setAplicaciones([]);
+    setFacturasPend([]); setAplicaciones([]); setAnticiposDisp([]); setAnticiposForm([]);
     setError(""); setModalOpen(true);
     if (prefill?.id) cargarFacturasPend(prefill.id);
   }
@@ -329,6 +367,21 @@ export default function ComprobantesPage() {
       const ap = apps.find((a) => a.factura_id === f.id);
       return { factura_id: f.id, checked: !!ap, valor: ap ? ap.valor : "" };
     }));
+
+    // Anticipos aplicados
+    const antsApp = await apiFetch<AnticipoAplicado[]>(`/cxp/${item.id}/anticipos-aplicados`).catch(() => []);
+    if (!esBorrador) {
+      setAnticiposDisp(antsApp.map((a) => ({ id: a.anticipo_id, numero: a.numero, fecha: a.fecha, total: a.valor, saldo: a.valor })));
+      setAnticiposForm(antsApp.map((a) => ({ anticipo_id: a.anticipo_id, checked: true, valor: a.valor })));
+    } else {
+      const antsDisp = await apiFetch<AnticipoDisponible[]>(`/cxp/anticipos-disponibles?tercero_id=${doc.tercero_id}&excluir_comprobante_id=${doc.id}`).catch(() => []);
+      const dispIds = new Set(antsDisp.map((a) => a.id));
+      const extra = antsApp.filter((a) => !dispIds.has(a.anticipo_id)).map((a) => ({ id: a.anticipo_id, numero: a.numero, fecha: a.fecha, total: a.valor, saldo: a.valor }));
+      const todos = [...antsDisp, ...extra];
+      const appMap = new Map(antsApp.map((a) => [a.anticipo_id, a]));
+      setAnticiposDisp(todos);
+      setAnticiposForm(todos.map((a) => { const ap = appMap.get(a.id); return { anticipo_id: a.id, checked: !!ap, valor: ap ? ap.valor : "" }; }));
+    }
     setLoadingDetalle(false);
   }
 
@@ -349,6 +402,7 @@ export default function ComprobantesPage() {
       valor_pagado: valorPagado,
       descripcion: fDescripcion.trim() || null,
       aplicaciones: apls.filter((a) => dec(a.valor) > 0).map((a) => ({ factura_id: a.factura_id, valor: dec(a.valor) })),
+      anticipos: anticiposForm.filter((a) => a.checked || dec(a.valor) > 0).map((a) => ({ anticipo_id: a.anticipo_id, valor: dec(a.valor) })),
     };
   }
 
@@ -360,7 +414,7 @@ export default function ComprobantesPage() {
         // Contabilizado: mostrar el asiento real asentado.
         p = await apiFetch<PreviewAsiento>(`/cxp/${activo.id}/asiento`);
       } else {
-        if (!fTerceroId || !fBanCuentaId || valorPagado <= 0) { setError("Completa proveedor, banco y valor para previsualizar"); return; }
+        if (!fTerceroId || !fBanCuentaId || presupuesto <= 0) { setError("Completa proveedor, banco y valor/anticipo para previsualizar"); return; }
         p = await apiFetch<PreviewAsiento>("/cxp/comprobante/preview-asiento", {
           method: "POST", body: JSON.stringify(buildPayload()),
         });
@@ -374,10 +428,10 @@ export default function ComprobantesPage() {
   async function guardar(contabilizar = false) {
     if (!fTerceroId) { setError("Selecciona el proveedor"); return; }
     if (!fBanCuentaId) { setError("Selecciona la cuenta bancaria"); return; }
-    if (!fValorPagado || valorPagado <= 0) { setError("El valor pagado debe ser mayor que cero"); return; }
+    if (presupuesto <= 0) { setError("Ingresa el valor pagado o aplica un anticipo"); return; }
     const apls = aplicaciones.filter((a) => a.checked || dec(a.valor) > 0);
-    if (apls.length === 0) { setError("Selecciona al menos una factura a pagar"); return; }
-    if (!cuadra) { setError(`Quedan $${fmt(disponible)} sin aplicar`); return; }
+    if (apls.length === 0) { setError("Selecciona al menos un documento a pagar"); return; }
+    if (totalAplicado <= 0) { setError("El total aplicado debe ser mayor que cero"); return; }
 
     const payload = buildPayload();
 
@@ -431,7 +485,7 @@ export default function ComprobantesPage() {
           <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
           <p className="text-[12px] text-gray-400 mt-0.5">Pagos a proveedores</p>
         </div>
-        <button onClick={abrirCrear}
+        <button onClick={() => abrirCrear()}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Nuevo comprobante
@@ -647,25 +701,75 @@ export default function ComprobantesPage() {
                         className={`${inp} disabled:bg-gray-50 disabled:text-gray-600`} />
                     </div>
 
-                    {/* Resumen numérico — solo en edición */}
-                    {!soloLectura && (
-                      <div className="pt-3 border-t border-gray-100 space-y-1.5 text-[11px]">
-                        <div className="flex justify-between text-gray-500">
-                          <span>Valor pagado</span>
-                          <span className="font-medium font-mono">{fmt(valorPagado)}</span>
+                    {/* Anticipos del proveedor */}
+                    {(anticiposDisp.length > 0 || (!soloLectura && fTerceroId)) && (
+                      <div className="pt-3 border-t border-gray-100">
+                        <span className={lbl}>Anticipos del proveedor</span>
+                        {anticiposDisp.length === 0 && (
+                          <p className="text-[10px] text-gray-400 italic">Este proveedor no tiene anticipos disponibles</p>
+                        )}
+                        <div className="space-y-1.5">
+                          {anticiposDisp.map((a, i) => {
+                            const af = anticiposForm[i];
+                            const act = af?.checked || dec(af?.valor) > 0;
+                            return (
+                              <div key={a.id} className={`p-2 rounded-lg border ${act ? "bg-blue-50 border-blue-200" : "bg-white border-gray-100"}`}>
+                                <div className="flex items-center gap-1.5">
+                                  {!soloLectura && (
+                                    <input type="checkbox" checked={af?.checked || false}
+                                      onChange={(e) => toggleAnticipo(i, e.target.checked)} className="w-3.5 h-3.5 rounded accent-blue-600" />
+                                  )}
+                                  <span className="font-mono text-[11px] text-gray-700 flex-1">{a.numero}</span>
+                                  {!soloLectura && <span className="text-[10px] text-gray-400">disp. ${fmt(a.saldo)}</span>}
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className="text-[10px] text-gray-400 w-12 shrink-0">Aplicar</span>
+                                  <div className="flex-1 min-w-0">
+                                    <MontoInput value={af?.valor || ""} onChange={(v) => setValorAnticipo(i, v, dec(a.saldo))}
+                                      max={dec(a.saldo)} decimales={2} disabled={soloLectura || !af?.checked}
+                                      className={`w-full min-w-0 px-2 py-1 border rounded text-[11px] text-right font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 ${(soloLectura || !af?.checked) ? "border-gray-200 bg-gray-100 text-gray-500" : "border-gray-200 bg-white"}`} />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Aplicado</span>
-                          <span className="font-medium font-mono">{fmt(totalAplicado)}</span>
-                        </div>
-                        <div className={`flex justify-between pt-1.5 border-t font-bold text-[12px] ${cuadra ? "text-green-700" : disponible < 0 ? "text-red-600" : "text-blue-700"}`}>
-                          <span>Disponible</span>
-                          <span className="font-mono">{fmt(disponible)}</span>
-                        </div>
-                        {disponible < 0 && <p className="text-[10px] text-red-500">Aplicado supera el total pagado</p>}
-                        {cuadra && <p className="text-[10px] text-green-600 font-medium">✓ Listo para guardar</p>}
                       </div>
                     )}
+
+                    {/* Resumen numérico */}
+                    <div className="pt-3 border-t border-gray-100 space-y-1.5 text-[11px]">
+                      <div className="flex justify-between text-gray-500">
+                        <span>Valor pagado</span>
+                        <span className="font-medium font-mono">{fmt(valorPagado)}</span>
+                      </div>
+                      {totalAnticipos > 0 && (
+                        <div className="flex justify-between text-blue-600">
+                          <span>+ Anticipos</span>
+                          <span className="font-medium font-mono">{fmt(totalAnticipos)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-gray-500 border-t pt-1.5">
+                        <span>Total fondeo</span>
+                        <span className="font-medium font-mono">{fmt(presupuesto)}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-500">
+                        <span>Aplicado a docs.</span>
+                        <span className="font-medium font-mono">{fmt(totalAplicado)}</span>
+                      </div>
+                      {hayAjuste ? (
+                        <div className={`flex justify-between pt-1.5 border-t font-bold text-[12px] ${ajuste > 0 ? "text-green-700" : "text-orange-600"}`}>
+                          <span>{ajuste > 0 ? "Descuento" : "Ajuste/pérdida"}</span>
+                          <span className="font-mono">{fmt(Math.abs(ajuste))}</span>
+                        </div>
+                      ) : !soloLectura ? (
+                        <div className="flex justify-between pt-1.5 border-t font-bold text-[12px] text-green-700">
+                          <span>Sin diferencia</span><span className="font-mono">0</span>
+                        </div>
+                      ) : null}
+                      {ajuste > 0 && <p className="text-[10px] text-green-600">Aplicado &gt; pagado → descuento del proveedor (ingreso)</p>}
+                      {ajuste < 0 && <p className="text-[10px] text-orange-500">Pagado &gt; aplicado → pérdida/ajuste (gasto)</p>}
+                    </div>
 
                     {/* Total en solo lectura */}
                     {soloLectura && (
@@ -705,16 +809,16 @@ export default function ComprobantesPage() {
                       </>
                     ) : (
                       <>
-                        <button onClick={verAsiento} disabled={previewLoading || !fTerceroId || !fBanCuentaId || valorPagado <= 0}
+                        <button onClick={verAsiento} disabled={previewLoading || !fTerceroId || !fBanCuentaId || presupuesto <= 0}
                           className="w-full py-2 border border-gray-300 text-blue-700 bg-white hover:bg-gray-50 text-[12px] font-medium rounded-lg disabled:opacity-40">
                           {previewLoading ? "Calculando…" : "Ver asiento"}
                         </button>
-                        <button onClick={() => guardar(false)} disabled={saving || !cuadra}
+                        <button onClick={() => guardar(false)} disabled={saving || !puedeGuardar}
                           className="w-full py-2 border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 text-[12px] font-medium rounded-lg disabled:opacity-50">
                           {saving ? "Guardando..." : "Guardar borrador"}
                         </button>
-                        <button onClick={() => guardar(true)} disabled={saving || !cuadra}
-                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg disabled:opacity-50">
+                        <button onClick={() => guardar(true)} disabled={saving || !puedeGuardar}
+                          className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-[12px] font-medium rounded-lg disabled:opacity-50">
                           {saving ? "Procesando..." : "Guardar y contabilizar"}
                         </button>
                         <button onClick={cerrar} className="w-full py-1.5 text-[11px] text-gray-500 hover:text-gray-700">Cancelar</button>
@@ -727,9 +831,9 @@ export default function ComprobantesPage() {
                 <div className="flex-1 flex flex-col min-w-0">
                   <div className="px-5 py-4 border-b border-gray-100 shrink-0">
                     <p className="text-[12px] font-semibold text-gray-700">
-                      {soloLectura ? "Facturas pagadas" : "Facturas pendientes del proveedor"}
+                      {soloLectura ? "Documentos pagados" : "Documentos por pagar del proveedor"}
                     </p>
-                    {!soloLectura && <p className="text-[11px] text-gray-400 mt-0.5">Selecciona las que va a cubrir este pago</p>}
+                    {!soloLectura && <p className="text-[11px] text-gray-400 mt-0.5">Facturas y notas débito que cubre este pago</p>}
                   </div>
                   <div className="flex-1 overflow-auto">
                     {cargandoFacs ? (
@@ -738,15 +842,15 @@ export default function ComprobantesPage() {
                       <p className="text-center py-10 text-[12px] text-gray-400">Selecciona un proveedor</p>
                     ) : facturasPend.length === 0 ? (
                       <p className="text-center py-10 text-[12px] text-gray-400">
-                        {soloLectura ? "Sin facturas aplicadas" : "Sin facturas pendientes"}
+                        {soloLectura ? "Sin documentos aplicados" : "Sin documentos por pagar"}
                       </p>
                     ) : (
                       <table className="w-full min-w-[680px] text-[12px]">
                         <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
                           <tr>
-                            <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Factura</th>
+                            <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Documento</th>
                             <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">Vence</th>
-                            <th className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">Total factura</th>
+                            <th className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">Total</th>
                             <th className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wide text-gray-400">
                               {soloLectura ? "Pagado" : "Aplicado"}
                             </th>
@@ -766,6 +870,7 @@ export default function ComprobantesPage() {
                                   <p className="font-mono font-semibold text-blue-600 text-[11px]">
                                     {f.numero}
                                     {f.tipo === "VRT" && <span className="ml-1.5 text-[9px] font-bold uppercase text-amber-700 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded">Tercero</span>}
+                                    {f.tipo === "NOTA_DEBITO" && <span className="ml-1.5 text-[9px] font-bold uppercase text-purple-700 bg-purple-50 border border-purple-200 px-1 py-0.5 rounded">N. Débito</span>}
                                   </p>
                                   <p className="text-[10px] text-gray-400">{f.fecha}</p>
                                 </td>
@@ -809,6 +914,17 @@ export default function ComprobantesPage() {
                             );
                           })}
                         </tbody>
+                        {!soloLectura && facturasPend.length > 0 && (
+                          <tfoot>
+                            <tr className="border-t-2 border-gray-200 font-bold text-gray-800 text-[11px]">
+                              <td colSpan={2}></td>
+                              <td className="px-3 py-2 text-right font-mono">{fmt(totalFacTotal)}</td>
+                              <td className="px-3 py-2 text-right font-mono">{fmt(totalFacAplicado)}</td>
+                              <td className="px-3 py-2 text-right font-mono">{fmt(totalFacSaldo)}</td>
+                              <td></td><td></td>
+                            </tr>
+                          </tfoot>
+                        )}
                       </table>
                     )}
                   </div>

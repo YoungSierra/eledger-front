@@ -52,6 +52,7 @@ function fmt(v: string | number) {
 export default function ImprimirReciboPage({ params }: { params: Promise<{ id: string }> }) {
   const [recibo, setRecibo]         = useState<Recibo | null>(null);
   const [apps, setApps]             = useState<AplicacionItem[]>([]);
+  const [anticipos, setAnticipos]   = useState<{ anticipo_id: string; numero: string; fecha: string; valor: string }[]>([]);
   const [asiento, setAsiento]       = useState<Asiento | null>(null);
   const [banCuenta, setBanCuenta]   = useState<BanCuenta | null>(null);
   const [empresa, setEmpresa]       = useState<Empresa | null>(null);
@@ -70,6 +71,7 @@ export default function ImprimirReciboPage({ params }: { params: Promise<{ id: s
       setRecibo(rec);
       setApps(aplicaciones);
       if (emp) setEmpresa(emp);
+      apiFetch<{ anticipo_id: string; numero: string; fecha: string; valor: string }[]>(`/cxc/${id}/anticipos-aplicados`).catch(() => []).then(setAnticipos);
       document.title = rec.numero;
       apiFetch<Usuario>(`/usuarios/${rec.creado_por}`).catch(() => null).then(u => { if (u) setElaborador(u); });
       if (rec.ban_cuenta_id) {
@@ -89,6 +91,10 @@ export default function ImprimirReciboPage({ params }: { params: Promise<{ id: s
   const esFuncional = !recibo.trm;
   const totalD = asiento ? parseFloat(asiento.total_debito) : 0;
   const totalC = asiento ? parseFloat(asiento.total_credito) : 0;
+
+  const anticiposTotal = anticipos.reduce((sum, a) => sum + parseFloat(a.valor || "0"), 0);
+  // ajuste = abonado − (efectivo + retenciones + anticipos): >0 descuento, <0 aprovechamiento
+  const ajuste = parseFloat(recibo.total) - parseFloat(recibo.subtotal) - parseFloat(recibo.total_retenciones) - anticiposTotal;
 
   const s = {
     black:  "#000",
@@ -222,8 +228,20 @@ export default function ImprimirReciboPage({ params }: { params: Promise<{ id: s
                 <td style={{ padding: "3px 12px 3px 0", color: s.mid, textAlign: "right" }}>Total retenciones</td>
                 <td style={{ padding: "3px 0", textAlign: "right", fontFamily: "monospace", color: s.mid }}>{fmt(recibo.total_retenciones)}</td>
               </tr>
+              {anticiposTotal > 0 && (
+                <tr>
+                  <td style={{ padding: "3px 12px 3px 0", color: s.mid, textAlign: "right" }}>Anticipos aplicados</td>
+                  <td style={{ padding: "3px 0", textAlign: "right", fontFamily: "monospace", color: s.mid }}>{fmt(anticiposTotal)}</td>
+                </tr>
+              )}
+              {Math.abs(ajuste) >= 0.01 && (
+                <tr>
+                  <td style={{ padding: "3px 12px 3px 0", color: s.mid, textAlign: "right" }}>{ajuste > 0 ? "Descuento" : "Aprovechamiento"}</td>
+                  <td style={{ padding: "3px 0", textAlign: "right", fontFamily: "monospace", color: s.mid }}>{ajuste > 0 ? fmt(ajuste) : `(${fmt(-ajuste)})`}</td>
+                </tr>
+              )}
               <tr style={{ borderTop: `2px solid ${s.thick}` }}>
-                <td style={{ padding: "6px 12px 3px 0", fontWeight: 700, textAlign: "right", textTransform: "uppercase", fontSize: 12 }}>Total</td>
+                <td style={{ padding: "6px 12px 3px 0", fontWeight: 700, textAlign: "right", textTransform: "uppercase", fontSize: 12 }}>Total abonado</td>
                 <td style={{ padding: "6px 0 3px 0", textAlign: "right", fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmt(recibo.total)}</td>
               </tr>
             </tbody>
