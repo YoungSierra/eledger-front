@@ -15,6 +15,8 @@ interface Usuario {
   telefono: string | null;
   rol_id: string;
   tercero_id: string | null;
+  tercero_nombre: string | null;
+  tercero_nit: string | null;
   es_asesor: boolean;
   ver_solo_propios: boolean;
   activo: boolean;
@@ -253,6 +255,12 @@ export default function UsuariosPage() {
                       </div>
                       <p className="mt-3 text-[14px] font-semibold text-gray-800 leading-tight">{u.nombre} {u.apellido}</p>
                       <p className="text-[11.5px] text-gray-500 mt-0.5 capitalize">{nombreRol(u.rol_id)}</p>
+                      {u.tercero_nombre && (
+                        <p className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 max-w-full" title={`${u.tercero_nit ?? ""} — ${u.tercero_nombre}`}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+                          <span className="truncate">{u.tercero_nombre}</span>
+                        </p>
+                      )}
                       {/* Slot de altura fija para el badge — alinea todas las tarjetas */}
                       <div className="h-6 mt-1 flex items-center justify-center">
                         {u.es_asesor && (

@@ -1,13 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, logout } from "@/lib/api";
+
+const TABS = [
+  { href: "/portal", label: "Operaciones" },
+  { href: "/portal/facturas", label: "Facturas" },
+  { href: "/portal/cartera", label: "Cartera" },
+  { href: "/portal/perfil", label: "Perfil" },
+];
 
 interface PortalMe { nombre: string; email: string; cliente: string; nit: string; }
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [me, setMe] = useState<PortalMe | null>(null);
 
   useEffect(() => {
@@ -64,6 +73,21 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             </button>
           </div>
 
+        </div>
+
+        {/* Tabs de navegación */}
+        <div className="border-t border-gray-100">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1">
+            {TABS.map((t) => {
+              const activo = t.href === "/portal" ? pathname === "/portal" : pathname.startsWith(t.href);
+              return (
+                <Link key={t.href} href={t.href}
+                  className={`px-3 py-2.5 text-[12px] font-medium border-b-2 transition-colors ${activo ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                  {t.label}
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </header>
 
