@@ -731,6 +731,14 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
             </p>
           </div>
           <div className="flex gap-2">
+            <button onClick={() => window.open(`/operacion/${operacion.id}`, "_blank")}
+              title="Resumen imprimible de la operación (documento interno)"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 hover:text-blue-600 hover:border-blue-300 text-[12px] font-medium rounded-lg transition-colors">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              Hoja de operación
+            </button>
             {operacion.estado === "ABIERTA" && (
               <button onClick={() => cambiarEstadoOp("EN_CURSO")} disabled={saving}
                 className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
