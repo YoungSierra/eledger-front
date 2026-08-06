@@ -5,6 +5,7 @@ import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import MunicipioSelect, { PaisSelect, TipoDocumentoSelect } from "@/components/MunicipioSelect";
 
 interface Tercero {
   id: string;
@@ -24,6 +25,9 @@ interface Tercero {
   email: string | null;
   telefono: string | null;
   direccion: string | null;
+  municipio_codigo: string | null;
+  pais_codigo: string | null;
+  tipo_documento_dian: string | null;
   ciudad: string | null;
   departamento: string | null;
   pais: string | null;
@@ -59,8 +63,8 @@ interface Form {
   tipo_persona: TipoPersona; tipo_tercero: TipoTercero;
   regimen: string;
   email: string; telefono: string;
-  direccion: string; ciudad: string; departamento: string;
-  pais: string; codigo_postal: string;
+  direccion: string; municipio_codigo: string; ciudad: string; departamento: string;
+  pais: string; pais_codigo: string; tipo_documento_dian: string; codigo_postal: string;
   nombre_contacto: string; cargo_contacto: string;
   telefono_contacto: string; email_contacto: string;
   notas: string; activo: boolean;
@@ -73,8 +77,8 @@ const FORM_VACIO: Form = {
   tipo_persona: "JURIDICA", tipo_tercero: "CLIENTE",
   regimen: "",
   email: "", telefono: "",
-  direccion: "", ciudad: "", departamento: "",
-  pais: "Colombia", codigo_postal: "",
+  direccion: "", municipio_codigo: "", ciudad: "", departamento: "",
+  pais: "Colombia", pais_codigo: "CO", tipo_documento_dian: "31", codigo_postal: "",
   nombre_contacto: "", cargo_contacto: "",
   telefono_contacto: "", email_contacto: "",
   notas: "", activo: true,
@@ -146,8 +150,9 @@ export default function TercerosPage() {
       tipo_persona: full.tipo_persona, tipo_tercero: full.tipo_tercero,
       regimen: full.regimen ?? "",
       email: full.email ?? "", telefono: full.telefono ?? "",
-      direccion: full.direccion ?? "", ciudad: full.ciudad ?? "",
+      direccion: full.direccion ?? "", municipio_codigo: full.municipio_codigo ?? "", ciudad: full.ciudad ?? "",
       departamento: full.departamento ?? "", pais: full.pais ?? "",
+      pais_codigo: full.pais_codigo ?? "CO", tipo_documento_dian: full.tipo_documento_dian ?? "",
       codigo_postal: full.codigo_postal ?? "",
       nombre_contacto: full.nombre_contacto ?? "", cargo_contacto: full.cargo_contacto ?? "",
       telefono_contacto: full.telefono_contacto ?? "", email_contacto: full.email_contacto ?? "",
@@ -160,6 +165,8 @@ export default function TercerosPage() {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(p => ({ ...p, [k]: e.target.value }));
   }
+
+  const esColombia = (form.pais_codigo || "CO") === "CO";
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError("");
@@ -179,8 +186,10 @@ export default function TercerosPage() {
         tipo_persona: form.tipo_persona, tipo_tercero: form.tipo_tercero,
         regimen: form.regimen || null, responsable_iva: responsableIva,
         email: form.email || null, telefono: form.telefono || null,
-        direccion: form.direccion || null, ciudad: form.ciudad || null,
-        departamento: form.departamento || null, pais: form.pais || null,
+        direccion: form.direccion || null, municipio_codigo: form.municipio_codigo || null,
+        ciudad: form.ciudad || null,
+        departamento: form.departamento || null,
+        pais_codigo: form.pais_codigo || null, tipo_documento_dian: form.tipo_documento_dian || null,
         codigo_postal: form.codigo_postal || null,
         nombre_contacto: form.nombre_contacto || null,
         cargo_contacto: form.cargo_contacto || null,
@@ -387,17 +396,30 @@ export default function TercerosPage() {
               {/* ── SECCIÓN 1: Identificación ── */}
               <SeccionDrawer titulo="Identificación" />
 
+              {/* El tipo de documento es catálogo DIAN, no se deduce: un cliente del
+                  exterior no tiene NIT ni cédula colombiana. */}
+              <div className="mb-3">
+                <label className={lbl}>Tipo de documento *</label>
+                <TipoDocumentoSelect
+                  value={form.tipo_documento_dian}
+                  onChange={(codigo) => setForm((prev) => ({ ...prev, tipo_documento_dian: codigo }))}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className={lbl}>NIT *</label>
+                  <label className={lbl}>{esColombia ? "NIT *" : "N.º de documento *"}</label>
                   <input value={form.nit} onChange={f("nit")} required
-                    className={inp} placeholder="901702367" />
+                    className={inp} placeholder={esColombia ? "901702367" : "98-7654321"} />
                 </div>
-                <div>
-                  <label className={lbl}>Dígito verif.</label>
-                  <input value={form.digito_verif} onChange={f("digito_verif")}
-                    className={inp} placeholder="9" maxLength={1} />
-                </div>
+                {/* El dígito de verificación es colombiano: un documento extranjero no lo tiene. */}
+                {esColombia && (
+                  <div>
+                    <label className={lbl}>Dígito verif.</label>
+                    <input value={form.digito_verif} onChange={f("digito_verif")}
+                      className={inp} placeholder="9" maxLength={1} />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
@@ -488,24 +510,44 @@ export default function TercerosPage() {
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className={lbl}>País</label>
-                  <input value={form.pais} onChange={f("pais")} className={inp} placeholder="Colombia" />
-                </div>
-                <div>
-                  <label className={lbl}>Departamento</label>
-                  <input value={form.departamento} onChange={f("departamento")} className={inp} placeholder="Cundinamarca" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className={lbl}>Ciudad</label>
-                  <input value={form.ciudad} onChange={f("ciudad")} className={inp} placeholder="Bogotá" />
+                  <PaisSelect
+                    value={form.pais_codigo}
+                    onChange={(codigo) => setForm((prev) => ({
+                      ...prev, pais_codigo: codigo,
+                      // Cambiar de país invalida el municipio DIVIPOLA.
+                      municipio_codigo: codigo === "CO" ? prev.municipio_codigo : "",
+                    }))}
+                  />
                 </div>
                 <div>
                   <label className={lbl}>Código postal</label>
                   <input value={form.codigo_postal} onChange={f("codigo_postal")} className={inp} placeholder="110111" />
                 </div>
               </div>
+
+              {/* Dentro de Colombia el municipio sale del catálogo DIVIPOLA (su código
+                  DANE es obligatorio para la DIAN). Para el exterior ese catálogo no
+                  aplica y la ubicación se captura como texto libre. */}
+              {esColombia ? (
+                <div className="mb-3">
+                  <MunicipioSelect
+                    value={form.municipio_codigo}
+                    onChange={(codigo) => setForm((prev) => ({ ...prev, municipio_codigo: codigo }))}
+                    labelCls={lbl}
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className={lbl}>Estado / Provincia</label>
+                    <input value={form.departamento} onChange={f("departamento")} className={inp} placeholder="Florida" />
+                  </div>
+                  <div>
+                    <label className={lbl}>Ciudad</label>
+                    <input value={form.ciudad} onChange={f("ciudad")} className={inp} placeholder="Miami" />
+                  </div>
+                </div>
+              )}
 
               <div className="mb-3">
                 <label className={lbl}>Dirección</label>

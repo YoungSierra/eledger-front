@@ -82,6 +82,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [trmPuedeEditar, setTrmPuede]   = useState(false);
   const [trmModal, setTrmModal]         = useState(false);
   const [trmInput, setTrmInput]         = useState("");
+  // null = aún no se consultó · "" = la fuente no respondió
+  const [trmSugerida, setTrmSugerida]   = useState<string | null>(null);
+  const [trmRecargando, setTrmRecargando] = useState(false);
   const [trmSaving, setTrmSaving]       = useState(false);
   const [trmError, setTrmError]         = useState("");
 
@@ -119,6 +122,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setTrmValor(res.tasa ? parseFloat(res.tasa) : null);
         if (!res.existe) {
           setTrmInput(res.sugerida ? String(res.sugerida) : "");
+          setTrmSugerida(res.sugerida ? String(res.sugerida) : "");
           if (res.puede_editar) setTrmModal(true);
         }
       })
@@ -209,6 +213,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setPOk("Nombre actualizado correctamente.");
     } catch (e) { setPError(e instanceof Error ? e.message : "Error"); }
     finally { setPSaving(false); }
+  }
+
+  // La fuente oficial puede fallar puntualmente; se permite reintentar sin
+  // tener que recargar la página ni cerrar el modal.
+  async function reconsultarTrm() {
+    setTrmRecargando(true);
+    try {
+      const res = await apiFetch<{ sugerida: string | null }>("/trm/hoy");
+      setTrmSugerida(res.sugerida ? String(res.sugerida) : "");
+      if (res.sugerida) setTrmInput(String(res.sugerida));
+    } catch { setTrmSugerida(""); }
+    finally { setTrmRecargando(false); }
   }
 
   async function guardarTrm() {
@@ -527,9 +543,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <p className="text-[11px] text-gray-500">
                 No hay TRM registrada para hoy. Debes confirmarla para continuar; el valor sugerido viene del Banco de la República.
               </p>
+              {trmSugerida === "" && (
+                <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <span className="text-[12px]">⚠</span>
+                  <div className="flex-1">
+                    <p className="text-[11px] text-amber-800">
+                      No se pudo consultar la tasa oficial. Digita el valor a mano o reintenta.
+                    </p>
+                    <button type="button" onClick={reconsultarTrm} disabled={trmRecargando}
+                      className="mt-1 text-[11px] font-semibold text-amber-900 underline disabled:opacity-50">
+                      {trmRecargando ? "Consultando…" : "Reintentar consulta"}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                  1 USD = ___ COP
+                  1 USD = {trmSugerida ? `${parseFloat(trmSugerida).toLocaleString("es-CO", { minimumFractionDigits: 2 })} COP (sugerido)` : "___ COP"}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-gray-400 font-medium">$</span>

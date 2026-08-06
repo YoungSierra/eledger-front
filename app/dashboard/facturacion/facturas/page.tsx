@@ -6,6 +6,7 @@ import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
 import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
+import AsientoModal, { type AsientoData } from "@/components/AsientoModal";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -37,6 +38,9 @@ interface CentroCosto { id: string; codigo: string; nombre: string; padre_id: st
 interface RetencionForm {
   _key: string;
   cat_id: string;
+  /** Calculada por el backend desde el concepto: su base ya viene correcta y
+   *  no debe recalcularse contra el subtotal propio completo. */
+  auto?: boolean;
   tipo: string; concepto: string;
   base: string; porcentaje: string; valor: string;
   cuenta_id: string; cuenta_display: string;
@@ -82,17 +86,7 @@ interface RetencionResp {
   cuenta_id: string; cuenta_codigo: string | null; cuenta_nombre: string | null;
 }
 
-interface PreviewAsientoLinea {
-  cuenta_codigo: string | null; cuenta_nombre: string | null;
-  tercero_nombre: string | null; centro_costo: string | null;
-  debito: string; credito: string;
-}
-interface PreviewAsiento {
-  lineas: PreviewAsientoLinea[];
-  total_debito: string; total_credito: string;
-  cuadra: boolean; moneda_codigo: string | null; avisos: string[];
-  asiento_numero?: number | null;
-}
+type PreviewAsiento = AsientoData;
 
 interface CotFactLinea {
   linea_id: string; descripcion: string; moneda: string; pendiente: string;
@@ -117,6 +111,9 @@ interface Factura {
   notas: string | null;
   estado: "borrador" | "contabilizada" | "anulada";
   asiento_id: string | null; cxc_documento_id: string | null;
+  cufe: string | null; dian_estado: string | null; numero_dian: string | null;
+  // Copia propia del documento electrónico (conservación DIAN 5 años)
+  xml_key: string | null; pdf_key: string | null;
   lineas: LineaResp[]; retenciones: RetencionResp[];
 }
 
@@ -442,6 +439,24 @@ function Modal({
     setCotizacionId(cotSelId);
     setCotizacionNumero(cotOpts.find(c => c.id === cotSelId)?.numero ?? "");
     setCargarOpen(false);
+    sugerirRetenciones(nuevas);
+  }
+
+  /** Pide al backend las retenciones que corresponden a estas líneas según el
+   *  concepto de cada una. Misma regla que al facturar desde cotización. */
+  async function sugerirRetenciones(lns: LineaForm[]) {
+    const payload = lns.map(l => ({
+      descripcion: l.descripcion, cantidad: parseFloat(l.cantidad) || 1,
+      precio_unitario: parseFloat(l.precio_unitario) || 0,
+      subtotal: parseFloat(l.subtotal) || 0, total: parseFloat(l.total) || 0,
+      cotizacion_linea_id: l.cotizacion_linea_id || null,
+      valor_tercero: l.valor_tercero,
+    }));
+    try {
+      const res = await apiFetch<RetencionResp[]>("/facturacion/facturas/retenciones-sugeridas",
+        { method: "POST", body: JSON.stringify(payload) });
+      if (res.length) setRetenciones(res.map(r => ({ ...retFromResp(r), auto: true })));
+    } catch { /* si falla, el usuario las captura a mano como antes */ }
   }
 
   function lineaFromResp(l: LineaResp): LineaForm {
@@ -518,10 +533,13 @@ function Modal({
   const totalRet = retenciones.reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
   const total = subtotal + totalIva - totalRet;
 
-  // La base de retención es solo el ingreso propio; los valores para terceros no retienen.
+  // La base de retención es solo el ingreso propio; los valores para terceros no
+  // retienen. Las AUTOMÁTICAS se saltan: su base la calculó el backend por
+  // concepto y puede ser un subconjunto (p. ej. 1% solo sobre transporte).
   useEffect(() => {
     if (retenciones.length === 0 || soloLectura) return;
     setRetenciones(prev => prev.map(r => {
+      if (r.auto) return r;
       const val = Math.round(subtotalPropio * (parseFloat(r.porcentaje) || 0) / 100 * 10000) / 10000;
       return { ...r, base: String(subtotalPropio), valor: String(val) };
     }));
@@ -692,6 +710,35 @@ function Modal({
       onSaved();
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Error"); }
     finally { setSaving(false); }
+  }
+
+  const [transmitiendo, setTransmitiendo] = useState(false);
+  const [dianMsg, setDianMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  async function transmitirDian() {
+    if (!factura) return;
+    setTransmitiendo(true); setError(""); setDianMsg(null);
+    try {
+      const r = await apiFetch<{ ok: boolean; dian_estado: string; cufe: string | null; numero_dian: string | null; archivado: boolean; mensaje: string; errores: string[]; avisos: string[] }>(
+        `/facturacion/facturas/${factura.id}/transmitir`, { method: "POST" });
+      const detalle = [r.mensaje, ...(r.errores ?? [])].filter(Boolean).join(" · ");
+      const archivo = r.ok && !r.archivado && (r.avisos ?? []).length
+        ? " · ⚠ No se pudo archivar el XML/PDF: " + r.avisos.join(" · ")
+        : "";
+      setDianMsg({ ok: r.ok, texto: `DIAN: ${r.dian_estado}${detalle ? " — " + detalle : ""}${r.cufe ? " (CUFE " + r.cufe.slice(0, 12) + "…)" : ""}${archivo}` });
+      setArchivado(r.archivado);
+    } catch (e) { setDianMsg({ ok: false, texto: e instanceof Error ? e.message : "Error al transmitir" }); }
+    finally { setTransmitiendo(false); }
+  }
+
+  // Copia propia del documento electrónico: la DIAN obliga a conservarlo 5 años y
+  // el PTH solo lo mantiene mientras el paquete esté vigente.
+  const [archivado, setArchivado] = useState(false);
+  async function descargarDian(tipo: "xml" | "pdf") {
+    if (!factura) return;
+    try {
+      const r = await apiFetch<{ url?: string; directo?: boolean }>(`/facturacion/facturas/${factura.id}/dian/${tipo}`);
+      if (r?.url) window.open(r.url, "_blank", "noopener");
+    } catch (e) { setDianMsg({ ok: false, texto: e instanceof Error ? e.message : `No se pudo descargar el ${tipo.toUpperCase()}` }); }
   }
 
   return (
@@ -1098,6 +1145,11 @@ function Modal({
           )}
 
           {error && <p className="text-[12px] text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          {dianMsg && (
+            <p className={`text-[12px] rounded-lg px-3 py-2 ${dianMsg.ok ? "text-green-700 bg-green-50 border border-green-200" : "text-red-600 bg-red-50 border border-red-200"}`}>
+              {dianMsg.texto}
+            </p>
+          )}
         </div>
 
         {/* Footer */}
@@ -1124,6 +1176,29 @@ function Modal({
                 Imprimir
               </a>
             )}
+            {factura?.estado === "contabilizada" && !showAnular && (
+              <button onClick={transmitirDian} disabled={transmitiendo}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+                {transmitiendo ? "Transmitiendo…" : "Transmitir a DIAN"}
+              </button>
+            )}
+            {(archivado || factura?.xml_key || factura?.pdf_key) && !showAnular && (
+              <>
+                <button onClick={() => descargarDian("xml")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                  title="XML firmado archivado por nosotros (conservación DIAN 5 años)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><path d="M12 15V3"/></svg>
+                  XML
+                </button>
+                <button onClick={() => descargarDian("pdf")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                  title="PDF de la representación gráfica archivado por nosotros">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><path d="M12 15V3"/></svg>
+                  PDF
+                </button>
+              </>
+            )}
             <button onClick={onClose}
               className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition-colors">
               {soloLectura ? "Cerrar" : "Cancelar"}
@@ -1148,67 +1223,10 @@ function Modal({
         </div>
       </div>
 
-      {/* Modal: preview del asiento contable */}
+      {/* Modal: preview del asiento contable — componente compartido, para que
+          la doble columna de moneda no haya que mantenerla en dos sitios. */}
       {preview && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-4">
-          <div className="bg-white rounded-xl shadow-xl flex flex-col"
-            style={{ resize: "both", overflow: "hidden", width: "min(95vw, 80rem)", height: "min(85vh, 34rem)", minWidth: "min(80rem, 95vw)", minHeight: "26rem", maxWidth: "97vw", maxHeight: "95vh" }}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <h3 className="text-[16px] font-semibold text-gray-800">{soloLectura ? "Asiento contabilizado" : "Previsualización del asiento"}</h3>
-                {preview.asiento_numero != null && (
-                  <span className="text-[12px] font-mono font-semibold text-gray-500">N.º {preview.asiento_numero}</span>
-                )}
-                <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${preview.cuadra ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
-                  {preview.cuadra ? "Cuadra ✓" : "Descuadra"}
-                </span>
-              </div>
-              <button onClick={() => setPreview(null)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              {preview.avisos.length > 0 && (
-                <div className="mb-4 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[12px] text-amber-700 space-y-1">
-                  {preview.avisos.map((a, i) => <p key={i}>⚠ {a}</p>)}
-                </div>
-              )}
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr className="border-b border-gray-200 text-gray-500 text-[11px] uppercase">
-                    <th className="text-left px-3 py-2">Cuenta</th>
-                    <th className="text-left px-3 py-2">Tercero / C. Costo</th>
-                    <th className="text-right px-3 py-2">Débito</th>
-                    <th className="text-right px-3 py-2">Crédito</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.lineas.map((l, i) => (
-                    <tr key={i} className="border-b border-gray-50">
-                      <td className="px-3 py-2">
-                        <span className="font-mono text-blue-600 mr-2">{l.cuenta_codigo ?? "—"}</span>
-                        <span className="text-gray-700">{l.cuenta_nombre}</span>
-                      </td>
-                      <td className="px-3 py-2 text-gray-500">
-                        {l.tercero_nombre}{l.centro_costo ? ` · ${l.centro_costo}` : ""}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.debito) > 0 ? fmt(l.debito, decs) : ""}</td>
-                      <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.credito) > 0 ? fmt(l.credito, decs) : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300 font-bold text-gray-900 text-[14px]">
-                    <td className="px-3 py-2.5" colSpan={2}>Totales ({preview.moneda_codigo})</td>
-                    <td className="px-3 py-2.5 text-right font-mono">{fmt(preview.total_debito, decs)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono">{fmt(preview.total_credito, decs)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-              <p className="text-[11px] text-gray-400 mt-4">{soloLectura ? "Partidas realmente asentadas en contabilidad." : "Vista previa según lo que hay en pantalla. Aún no se ha contabilizado."}</p>
-            </div>
-          </div>
-        </div>
+        <AsientoModal data={preview} real={soloLectura} onClose={() => setPreview(null)} />
       )}
 
       {/* Picker: cargar desde cotización (filtrado por el cliente de la factura) */}
@@ -1295,7 +1313,7 @@ export default function FacturasPage() {
   const porPagina = 50;
   const [loading, setLoading] = useState(false);
   const { orden, alternar } = useOrden<
-    "numero" | "fecha" | "vencimiento" | "cliente" | "subtotal" | "iva" | "total" | "estado"
+    "numero" | "fecha" | "vencimiento" | "cliente" | "moneda" | "subtotal" | "iva" | "total" | "estado"
   >("fecha", "desc");
 
   const [fEstado, setFEstado] = useState("");
@@ -1364,6 +1382,7 @@ export default function FacturasPage() {
     fecha:       (d) => `${d.fecha} ${d.creado_en}`,
     vencimiento: (d) => d.fecha_vencimiento,
     cliente:     (d) => d.cliente_nombre,
+    moneda:      (d) => d.moneda_codigo,
     subtotal:    (d) => Number(d.subtotal),
     iva:         (d) => Number(d.total_iva),
     total:       (d) => Number(d.total),
@@ -1443,6 +1462,7 @@ export default function FacturasPage() {
                 <Th campo="fecha"       orden={orden} alternar={alternar} className="whitespace-nowrap">Fecha</Th>
                 <Th campo="vencimiento" orden={orden} alternar={alternar} className="whitespace-nowrap">Vencimiento</Th>
                 <Th campo="cliente"     orden={orden} alternar={alternar} className="whitespace-nowrap">Cliente</Th>
+                <Th campo="moneda"      orden={orden} alternar={alternar} className="whitespace-nowrap">Moneda</Th>
                 <Th campo="subtotal"    orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Subtotal</Th>
                 <Th campo="iva"         orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">IVA</Th>
                 <Th campo="total"       orden={orden} alternar={alternar} align="right" className="whitespace-nowrap">Total</Th>
@@ -1452,9 +1472,9 @@ export default function FacturasPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando…</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Cargando…</td></tr>
               ) : lista.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Sin facturas registradas</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Sin facturas registradas</td></tr>
               ) : ordenada.map(d => {
                 const vencida  = d.dias_vencimiento !== null && d.dias_vencimiento < 0;
                 const porVencer = d.dias_vencimiento !== null && d.dias_vencimiento >= 0 && d.dias_vencimiento <= 5;
@@ -1487,6 +1507,13 @@ export default function FacturasPage() {
                     <td className="px-3 py-2.5 max-w-[180px]">
                       <div className="font-medium text-gray-800 truncate">{d.cliente_nombre ?? "—"}</div>
                       <div className="text-[10px] font-mono text-gray-400">{d.cliente_nit ?? ""}</div>
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <span className={`text-[10px] font-semibold font-mono px-1.5 py-0.5 rounded ${
+                        d.moneda_codigo === "COP" ? "text-gray-500 bg-gray-100" : "text-indigo-700 bg-indigo-50"
+                      }`}>
+                        {d.moneda_codigo}
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-600">{fmt(d.subtotal)}</td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-500">{fmt(d.total_iva)}</td>

@@ -507,7 +507,7 @@ export default function ProductosPage() {
                 <label className="flex items-center gap-2.5 cursor-pointer">
                   <input type="checkbox" checked={form.maneja_inventario}
                     onChange={(e) => setForm(p => ({ ...p, maneja_inventario: e.target.checked }))}
-                    disabled={form.tipo === "SERVICIO"}
+                    disabled={tipos.find(t => t.id === form.tipo_id)?.maneja_inventario === false}
                     className="rounded border-gray-300 text-blue-600 disabled:opacity-40" />
                   <span className="text-[12px] text-gray-700">Maneja inventario</span>
                 </label>

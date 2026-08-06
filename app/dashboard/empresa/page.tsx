@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
+import MunicipioSelect from "@/components/MunicipioSelect";
 
 interface Empresa {
   id: string;
@@ -11,6 +12,7 @@ interface Empresa {
   nit: string;
   digito_verif: string | null;
   direccion: string | null;
+  municipio_codigo: string | null;
   ciudad: string | null;
   departamento: string | null;
   telefono: string | null;
@@ -208,13 +210,15 @@ export default function EmpresaPage() {
             <label className={labelCls}>Dirección</label>
             <input name="direccion" value={form.direccion ?? ""} onChange={handleChange} className={inputCls} />
           </div>
-          <div>
-            <label className={labelCls}>Ciudad</label>
-            <input name="ciudad" value={form.ciudad ?? ""} onChange={handleChange} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Departamento</label>
-            <input name="departamento" value={form.departamento ?? ""} onChange={handleChange} className={inputCls} />
+          {/* El municipio sale del catálogo DIVIPOLA: su código DANE es lo que
+              exige la facturación electrónica. Ciudad y departamento en texto
+              los deriva el backend a partir del código. */}
+          <div className="sm:col-span-2">
+            <MunicipioSelect
+              value={form.municipio_codigo ?? ""}
+              onChange={(codigo) => setForm((f) => ({ ...f, municipio_codigo: codigo }))}
+              labelCls={labelCls}
+            />
           </div>
           <div>
             <label className={labelCls}>Teléfono</label>

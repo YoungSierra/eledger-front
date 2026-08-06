@@ -4,12 +4,18 @@ export interface AsientoLinea {
   cuenta_codigo: string | null; cuenta_nombre: string | null;
   tercero_nombre: string | null; centro_costo: string | null;
   debito: string; credito: string;
+  /** Lo que realmente suma en los libros. Solo llega si el documento está en moneda extranjera. */
+  debito_funcional?: string | null; credito_funcional?: string | null;
 }
 export interface AsientoData {
   lineas: AsientoLinea[];
   total_debito: string; total_credito: string;
   cuadra: boolean; moneda_codigo: string | null; avisos: string[];
   asiento_numero?: number | null;
+  moneda_funcional_codigo?: string | null;
+  trm?: string | null;
+  total_debito_funcional?: string | null;
+  total_credito_funcional?: string | null;
 }
 
 function fmt(v: string | number) {
@@ -19,10 +25,17 @@ function fmt(v: string | number) {
 /**
  * Modal reutilizable para "Ver asiento": muestra la previsualización (borrador)
  * o el asiento real contabilizado según `real`.
+ *
+ * Con documentos en moneda extranjera se muestran CUATRO columnas: el par en la
+ * moneda del documento y el par en moneda funcional. Solo el segundo es el que
+ * suma en los libros, así que va resaltado y es el que lleva el rótulo.
  */
 export default function AsientoModal({ data, real = false, onClose }: {
   data: AsientoData; real?: boolean; onClose: () => void;
 }) {
+  const dobleMoneda = !!data.moneda_funcional_codigo && data.moneda_funcional_codigo !== data.moneda_codigo;
+  const colSpanTotales = 2;
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-4">
       <div className="bg-white rounded-xl shadow-xl flex flex-col"
@@ -36,6 +49,11 @@ export default function AsientoModal({ data, real = false, onClose }: {
             <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${data.cuadra ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
               {data.cuadra ? "Cuadra ✓" : "Descuadra"}
             </span>
+            {dobleMoneda && data.trm && (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+                TRM {fmt(data.trm)}
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -49,11 +67,22 @@ export default function AsientoModal({ data, real = false, onClose }: {
           )}
           <table className="w-full text-[13px]">
             <thead>
+              {dobleMoneda && (
+                <tr className="text-[10px] uppercase tracking-wide text-gray-400">
+                  <th colSpan={colSpanTotales} />
+                  <th className="text-center px-3 pt-1" colSpan={2}>{data.moneda_codigo} · documento</th>
+                  <th className="text-center px-3 pt-1 text-indigo-600 font-bold" colSpan={2}>
+                    {data.moneda_funcional_codigo} · contabilidad
+                  </th>
+                </tr>
+              )}
               <tr className="border-b border-gray-200 text-gray-500 text-[11px] uppercase">
                 <th className="text-left px-3 py-2">Cuenta</th>
                 <th className="text-left px-3 py-2">Tercero / C. Costo</th>
                 <th className="text-right px-3 py-2">Débito</th>
                 <th className="text-right px-3 py-2">Crédito</th>
+                {dobleMoneda && <th className="text-right px-3 py-2 text-indigo-600">Débito</th>}
+                {dobleMoneda && <th className="text-right px-3 py-2 text-indigo-600">Crédito</th>}
               </tr>
             </thead>
             <tbody>
@@ -66,20 +95,48 @@ export default function AsientoModal({ data, real = false, onClose }: {
                   <td className="px-3 py-2 text-gray-500">
                     {l.tercero_nombre}{l.centro_costo ? ` · ${l.centro_costo}` : ""}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.debito) > 0 ? fmt(l.debito) : ""}</td>
-                  <td className="px-3 py-2 text-right font-mono text-gray-800">{parseFloat(l.credito) > 0 ? fmt(l.credito) : ""}</td>
+                  <td className={`px-3 py-2 text-right font-mono ${dobleMoneda ? "text-gray-400" : "text-gray-800"}`}>
+                    {parseFloat(l.debito) > 0 ? fmt(l.debito) : ""}
+                  </td>
+                  <td className={`px-3 py-2 text-right font-mono ${dobleMoneda ? "text-gray-400" : "text-gray-800"}`}>
+                    {parseFloat(l.credito) > 0 ? fmt(l.credito) : ""}
+                  </td>
+                  {dobleMoneda && (
+                    <td className="px-3 py-2 text-right font-mono text-gray-800 font-medium">
+                      {parseFloat(l.debito_funcional ?? "0") > 0 ? fmt(l.debito_funcional!) : ""}
+                    </td>
+                  )}
+                  {dobleMoneda && (
+                    <td className="px-3 py-2 text-right font-mono text-gray-800 font-medium">
+                      {parseFloat(l.credito_funcional ?? "0") > 0 ? fmt(l.credito_funcional!) : ""}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-300 font-bold text-gray-900 text-[14px]">
-                <td className="px-3 py-2.5" colSpan={2}>Totales ({data.moneda_codigo})</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmt(data.total_debito)}</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmt(data.total_credito)}</td>
+                <td className="px-3 py-2.5" colSpan={colSpanTotales}>
+                  Totales{dobleMoneda ? "" : ` (${data.moneda_codigo})`}
+                </td>
+                <td className={`px-3 py-2.5 text-right font-mono ${dobleMoneda ? "text-gray-400 font-medium" : ""}`}>{fmt(data.total_debito)}</td>
+                <td className={`px-3 py-2.5 text-right font-mono ${dobleMoneda ? "text-gray-400 font-medium" : ""}`}>{fmt(data.total_credito)}</td>
+                {dobleMoneda && (
+                  <td className="px-3 py-2.5 text-right font-mono">{fmt(data.total_debito_funcional ?? "0")}</td>
+                )}
+                {dobleMoneda && (
+                  <td className="px-3 py-2.5 text-right font-mono">{fmt(data.total_credito_funcional ?? "0")}</td>
+                )}
               </tr>
             </tfoot>
           </table>
-          <p className="text-[11px] text-gray-400 mt-4">{real ? "Partidas realmente asentadas en contabilidad." : "Vista previa según lo que hay en pantalla. Aún no se ha contabilizado."}</p>
+          <p className="text-[11px] text-gray-400 mt-4">
+            {dobleMoneda
+              ? `A los libros va la columna en ${data.moneda_funcional_codigo}. La columna en ${data.moneda_codigo} queda como referencia del valor original del documento.`
+              : real
+                ? "Partidas realmente asentadas en contabilidad."
+                : "Vista previa según lo que hay en pantalla. Aún no se ha contabilizado."}
+          </p>
         </div>
       </div>
     </div>

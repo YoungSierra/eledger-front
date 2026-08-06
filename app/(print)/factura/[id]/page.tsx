@@ -13,6 +13,10 @@ interface LineaResp {
   descuento_pct: string; subtotal: string;
   iva_tipo: string; iva_pct: string; total_iva: string; total: string;
   valor_tercero: boolean;
+  // Equivalentes en moneda funcional, ya calculados por el backend con el mismo
+  // redondeo del asiento. Null cuando la factura ya está en moneda funcional.
+  precio_unitario_func: string | null; subtotal_func: string | null;
+  total_iva_func: string | null; total_func: string | null;
 }
 interface RetencionResp {
   tipo: string; concepto: string; base: string; porcentaje: string; valor: string;
@@ -27,6 +31,10 @@ interface Factura {
   moneda_codigo: string; trm: string | null; condicion_pago_nombre: string | null;
   subtotal: string; total_descuentos: string; total_iva: string;
   total_retenciones: string; total: string;
+  moneda_funcional_codigo: string | null;
+  subtotal_func: string | null; total_descuentos_func: string | null;
+  total_iva_func: string | null; total_retenciones_func: string | null;
+  total_func: string | null;
   notas: string | null; estado: string;
   cufe: string | null; dian_estado: string | null; fecha_dian: string | null;
   lineas: LineaResp[]; retenciones: RetencionResp[];
@@ -115,6 +123,9 @@ export default function PrintFactura() {
 
   const s = { black: "#000", dark: "#222", mid: "#555", light: "#888", border: "#bbb", thick: "#000" };
   const esFuncional = !factura.trm;
+  // La segunda columna solo aparece si la factura está en moneda extranjera y el
+  // backend devolvió los equivalentes ya convertidos.
+  const dobleMoneda = !esFuncional && !!factura.moneda_funcional_codigo;
 
   return (
     <>
@@ -122,11 +133,45 @@ export default function PrintFactura() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { overflow: auto !important; height: auto !important; background: #fff; }
         body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000; }
-        @page { margin: 14mm 16mm; size: A4; }
-        .page-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
+
+        /* El respiro superior va TODO en el margen de página, que sí se repite en
+           cada hoja. Antes venía del padding-top del contenedor, que solo aplica
+           al inicio del bloque: por eso la hoja 2 arrancaba más arriba.
+           No se usa @page :first — Chrome no lo aplica.
+           Alto útil = 297 (A4) − 20 (arriba) − 14 (abajo) = 263mm. */
+        @page { margin: 20mm 16mm 14mm; size: A4; }
+
+        /* El pie va en el tfoot de una tabla que envuelve todo el documento.
+           Así se repite al pie de CADA hoja y —a diferencia de position:fixed—
+           reserva su espacio, de modo que el contenido nunca se le encima.
+           Con position:fixed las últimas filas quedaban tapadas por el pie. */
+        .doc { width: 100%; border-collapse: collapse; }
+        .doc > tfoot { display: table-footer-group; }
+        .doc > tbody { display: table-row-group; }
+        .doc > tfoot td, .doc > tbody td { padding: 0; }
+
+        /* En pantalla no hay margen de página: se compensa para que no quede
+           pegado a la barra de herramientas. */
+        @media screen { .hoja { padding-top: 28px; } }
+
         @media print {
           body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
           .no-print { display: none !important; }
+
+          /* Los títulos de columna se repiten en cada hoja. */
+          thead { display: table-header-group; }
+          tfoot { display: table-footer-group; }
+
+          /* Ninguna fila se parte por la mitad. */
+          tr, td, th { break-inside: avoid; page-break-inside: avoid; }
+
+          /* Un encabezado de grupo no puede quedar solo al final de la hoja,
+             ni el subtotal separarse de sus líneas. */
+          .grupo-cabecera { break-after: avoid; page-break-after: avoid; }
+          .grupo-subtotal { break-before: avoid; page-break-before: avoid; }
+
+          /* Totales, retenciones y notas viajan juntos. */
+          .bloque-cierre { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>
 
@@ -138,7 +183,57 @@ export default function PrintFactura() {
         </button>
       </div>
 
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: "28px 36px", fontSize: 11, lineHeight: 1.5, display: "flex", flexDirection: "column", minHeight: "269mm" }}>
+      {/* Tabla envolvente: tbody = documento, tfoot = pie repetido en cada hoja. */}
+      <table className="doc">
+        <tfoot>
+          <tr>
+            <td>
+              {/* Pie legal — se repite al pie de cada hoja y reserva su espacio */}
+              <div style={{ background: "#fff", padding: "8px 36px 0", borderTop: `1px solid ${s.border}` }}>
+                <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, fontSize: 8, color: s.mid, lineHeight: 1.5 }}>
+                    <div style={{ marginBottom: 2 }}>
+                      A esta factura de venta aplican las normas relativas a la letra de cambio (artículo 5 Ley 1231 de 2008).
+                      Con esta el Comprador declara haber recibido real y materialmente las mercancías o prestación de servicios descritos en este título - Valor.
+                    </div>
+                    {resolucion && (
+                      <div style={{ marginBottom: 2 }}>
+                        Número Autorización {resolucion.numero_resolucion} aprobado en {resolucion.fecha_desde.replace(/-/g, "")}
+                        {resolucion.prefijo ? ` prefijo ${resolucion.prefijo}` : ""} desde el número {resolucion.rango_desde} al {resolucion.rango_hasta}
+                        {" · "}Vigencia:{" "}
+                        {Math.round(
+                          (new Date(resolucion.fecha_hasta).getTime() - new Date(resolucion.fecha_desde).getTime()) /
+                          (1000 * 60 * 60 * 24 * 30.44)
+                        )}{" "}Meses
+                      </div>
+                    )}
+                    {(empresa?.responsable_iva != null || empresa?.actividad_economica_codigo) && (
+                      <div>
+                        {empresa.responsable_iva ? "Responsable de IVA" : "No responsable de IVA"}
+                        {empresa.actividad_economica_codigo && (
+                          <> · Actividad Económica {empresa.actividad_economica_codigo}{empresa.actividad_economica_descripcion ? ` ${empresa.actividad_economica_descripcion}` : ""}</>
+                        )}
+                      </div>
+                    )}
+                    {factura.cufe && (
+                      <div style={{ fontFamily: "monospace", wordBreak: "break-all", marginTop: 2 }}>
+                        CUFE: {factura.cufe}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ minWidth: 200, textAlign: "right", fontSize: 7.5, color: s.light, fontStyle: "italic", lineHeight: 1.6 }}>
+                    <div>Elaborado por software Emperador Ledger</div>
+                    {pth && <div>Enviado electrónicamente por proveedor tecnológico {pth}</div>}
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
+        <tbody>
+          <tr>
+            <td>
+      <div className="hoja" style={{ maxWidth: 800, margin: "0 auto", padding: "0 36px 10px", fontSize: 11, lineHeight: 1.5, display: "flex", flexDirection: "column", minHeight: "232mm" }}>
 
         {/* Advertencia DIAN */}
         {!factura.cufe && (
@@ -232,7 +327,20 @@ export default function PrintFactura() {
         </div>
 
         {/* Líneas */}
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5, marginBottom: 20 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5, marginBottom: 20, tableLayout: "fixed" }}>
+          {/* Anchos explícitos: sin esto el navegador reparte parejo y la columna
+              de concepto queda tan angosta que casi todo parte en dos renglones. */}
+          <colgroup>
+            <col style={{ width: dobleMoneda ? "26%" : "30%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: dobleMoneda ? "12%" : "13%" }} />
+            <col style={{ width: dobleMoneda ? "12%" : "13%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: dobleMoneda ? "11%" : "13%" }} />
+            <col style={{ width: dobleMoneda ? "11%" : "13%" }} />
+            {dobleMoneda && <col style={{ width: "10%" }} />}
+          </colgroup>
           <thead>
             <tr style={{ borderBottom: `2px solid ${s.thick}` }}>
               {([
@@ -243,7 +351,8 @@ export default function PrintFactura() {
                 { h: "Subtotal", a: "right" },
                 { h: "IVA", a: "left" },
                 { h: "Total IVA", a: "right" },
-                { h: "Total", a: "right" },
+                { h: `Total ${factura.moneda_codigo}`, a: "right" },
+                ...(dobleMoneda ? [{ h: `Total ${factura.moneda_funcional_codigo}`, a: "right" as const }] : []),
               ] as const).map(c => (
                 <th key={c.h} style={{ padding: "6px 8px", textAlign: c.a, fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>{c.h}</th>
               ))}
@@ -253,30 +362,35 @@ export default function PrintFactura() {
             {(() => {
               const filaLinea = (l: LineaResp) => (
                 <tr key={l.id} style={{ borderBottom: `1px solid ${s.border}` }}>
-                  <td style={{ padding: "5px 8px" }}>{l.descripcion}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.cantidad)}</td>
-                  <td style={{ padding: "5px 8px", color: s.mid }}>{l.um_codigo ?? ""}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.precio_unitario)}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.subtotal)}</td>
-                  <td style={{ padding: "5px 8px", color: s.mid, fontSize: 10 }}>
+                  <td style={{ padding: "8px 8px", lineHeight: 1.35 }}>{l.descripcion}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.cantidad)}</td>
+                  <td style={{ padding: "8px 8px", color: s.mid }}>{l.um_codigo ?? ""}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.precio_unitario)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.subtotal)}</td>
+                  <td style={{ padding: "8px 8px", color: s.mid, fontSize: 10 }}>
                     {l.iva_tipo !== "NINGUNO" ? `${l.iva_tipo.replace("GRAVADO_", "")}%` : "—"}
                   </td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.total_iva)}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(l.total)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.total_iva)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(l.total)}</td>
+                  {dobleMoneda && (
+                    <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700, color: s.mid }}>
+                      {l.total_func ? fmt(l.total_func) : ""}
+                    </td>
+                  )}
                 </tr>
               );
               const cabecera = (titulo: string) => (
-                <tr key={titulo}>
-                  <td colSpan={8} style={{ padding: "6px 8px 3px", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: s.thick }}>{titulo}</td>
+                <tr key={titulo} className="grupo-cabecera">
+                  <td colSpan={dobleMoneda ? 9 : 8} style={{ padding: "6px 8px 3px", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: s.thick }}>{titulo}</td>
                 </tr>
               );
               const subtotalGrupo = (titulo: string, lns: LineaResp[]) => {
                 const sum = lns.reduce((a, l) => a + Number(l.subtotal), 0);
                 return (
-                  <tr key={titulo + "-sub"} style={{ borderBottom: `1.5px solid ${s.thick}` }}>
+                  <tr key={titulo + "-sub"} className="grupo-subtotal" style={{ borderBottom: `1.5px solid ${s.thick}` }}>
                     <td colSpan={4} style={{ padding: "4px 8px", textAlign: "right", fontSize: 10, fontStyle: "italic", color: s.mid }}>{titulo}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 700 }}>{fmt(sum)}</td>
-                    <td colSpan={3} />
+                    <td colSpan={dobleMoneda ? 4 : 3} />
                   </tr>
                 );
               };
@@ -298,7 +412,7 @@ export default function PrintFactura() {
         <div style={{ flex: 1 }} />
 
         {/* Totales + Retenciones + Notas */}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 24, marginBottom: 24 }}>
+        <div className="bloque-cierre" style={{ display: "flex", justifyContent: "space-between", gap: 24, marginBottom: 24 }}>
           <div style={{ flex: 1 }}>
             {factura.retenciones.length > 0 && (
               <div style={{ marginBottom: 12 }}>
@@ -342,32 +456,46 @@ export default function PrintFactura() {
             )}
           </div>
 
-          <div style={{ border: `1px solid ${s.border}`, borderRadius: 8, overflow: "hidden", minWidth: 240, alignSelf: "flex-start" }}>
+          <div style={{ border: `1px solid ${s.border}`, borderRadius: 8, overflow: "hidden", minWidth: dobleMoneda ? 340 : 240, alignSelf: "flex-start" }}>
             <table style={{ fontSize: 11, borderCollapse: "collapse", width: "100%" }}>
+              {dobleMoneda && (
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${s.border}` }}>
+                    <th />
+                    <th style={{ padding: "4px 14px 4px 0", textAlign: "right", fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: s.light }}>{factura.moneda_codigo}</th>
+                    <th style={{ padding: "4px 14px 4px 0", textAlign: "right", fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: s.light }}>{factura.moneda_funcional_codigo}</th>
+                  </tr>
+                </thead>
+              )}
               <tbody>
-                <tr>
-                  <td style={{ padding: "5px 14px 5px 12px", textAlign: "right", color: s.mid }}>Subtotal</td>
-                  <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace", minWidth: 110 }}>{fmt(factura.subtotal)}</td>
-                </tr>
-                {parseFloat(factura.total_descuentos) > 0 && (
-                  <tr>
-                    <td style={{ padding: "5px 14px 5px 12px", textAlign: "right", color: s.mid }}>Descuentos</td>
-                    <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace" }}>- {fmt(factura.total_descuentos)}</td>
+                {([
+                  { et: "Subtotal", v: factura.subtotal, f: factura.subtotal_func, mostrar: true, neg: false },
+                  { et: "Descuentos", v: factura.total_descuentos, f: factura.total_descuentos_func, mostrar: parseFloat(factura.total_descuentos) > 0, neg: true },
+                  { et: "IVA", v: factura.total_iva, f: factura.total_iva_func, mostrar: true, neg: false },
+                  { et: "Retenciones", v: factura.total_retenciones, f: factura.total_retenciones_func, mostrar: parseFloat(factura.total_retenciones) > 0, neg: true },
+                ]).filter(r => r.mostrar).map(r => (
+                  <tr key={r.et}>
+                    <td style={{ padding: "5px 14px 5px 12px", textAlign: "right", color: s.mid }}>{r.et}</td>
+                    <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace", minWidth: 110 }}>
+                      {r.neg ? `(${fmt(r.v)})` : fmt(r.v)}
+                    </td>
+                    {dobleMoneda && (
+                      <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace", minWidth: 110, color: s.mid }}>
+                        {r.f ? (r.neg ? `(${fmt(r.f)})` : fmt(r.f)) : ""}
+                      </td>
+                    )}
                   </tr>
-                )}
-                <tr>
-                  <td style={{ padding: "5px 14px 5px 12px", textAlign: "right", color: s.mid }}>IVA</td>
-                  <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace" }}>{fmt(factura.total_iva)}</td>
-                </tr>
-                {parseFloat(factura.total_retenciones) > 0 && (
-                  <tr>
-                    <td style={{ padding: "5px 14px 5px 12px", textAlign: "right", color: s.mid }}>Retenciones</td>
-                    <td style={{ padding: "5px 14px 5px 0", textAlign: "right", fontFamily: "monospace" }}>({fmt(factura.total_retenciones)})</td>
-                  </tr>
-                )}
+                ))}
                 <tr style={{ borderTop: `2px solid ${s.thick}`, background: "#f8fafc" }}>
-                  <td style={{ padding: "8px 14px 8px 12px", textAlign: "right", fontWeight: 700, fontSize: 12, textTransform: "uppercase" }}>Total {factura.moneda_codigo}</td>
+                  <td style={{ padding: "8px 14px 8px 12px", textAlign: "right", fontWeight: 700, fontSize: 12, textTransform: "uppercase" }}>
+                    Total{dobleMoneda ? "" : ` ${factura.moneda_codigo}`}
+                  </td>
                   <td style={{ padding: "8px 14px 8px 0", textAlign: "right", fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmt(factura.total)}</td>
+                  {dobleMoneda && (
+                    <td style={{ padding: "8px 14px 8px 0", textAlign: "right", fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>
+                      {factura.total_func ? fmt(factura.total_func) : ""}
+                    </td>
+                  )}
                 </tr>
               </tbody>
             </table>
@@ -376,52 +504,10 @@ export default function PrintFactura() {
 
 
       </div>
-
-      {/* Pie de página fijo */}
-      <div className="page-footer" style={{ background: "#fff", padding: "8px 36px 6px", borderTop: `1px solid ${s.border}` }}>
-
-        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-
-          {/* Pie legal colombiano — izquierda */}
-          <div style={{ flex: 1, fontSize: 8, color: s.mid, lineHeight: 1.5 }}>
-            <div style={{ marginBottom: 2 }}>
-              A esta factura de venta aplican las normas relativas a la letra de cambio (artículo 5 Ley 1231 de 2008).
-              Con esta el Comprador declara haber recibido real y materialmente las mercancías o prestación de servicios descritos en este título - Valor.
-            </div>
-            {resolucion && (
-              <div style={{ marginBottom: 2 }}>
-                Número Autorización {resolucion.numero_resolucion} aprobado en {resolucion.fecha_desde.replace(/-/g, "")}
-                {resolucion.prefijo ? ` prefijo ${resolucion.prefijo}` : ""} desde el número {resolucion.rango_desde} al {resolucion.rango_hasta}
-                {" · "}Vigencia:{" "}
-                {Math.round(
-                  (new Date(resolucion.fecha_hasta).getTime() - new Date(resolucion.fecha_desde).getTime()) /
-                  (1000 * 60 * 60 * 24 * 30.44)
-                )}{" "}Meses
-              </div>
-            )}
-            {(empresa?.responsable_iva != null || empresa?.actividad_economica_codigo) && (
-              <div>
-                {empresa.responsable_iva ? "Responsable de IVA" : "No responsable de IVA"}
-                {empresa.actividad_economica_codigo && (
-                  <> · Actividad Económica {empresa.actividad_economica_codigo}{empresa.actividad_economica_descripcion ? ` ${empresa.actividad_economica_descripcion}` : ""}</>
-                )}
-              </div>
-            )}
-            {factura.cufe && (
-              <div style={{ fontFamily: "monospace", wordBreak: "break-all", marginTop: 2 }}>
-                CUFE: {factura.cufe}
-              </div>
-            )}
-          </div>
-
-          {/* Software / PTH — derecha */}
-          <div style={{ minWidth: 200, textAlign: "right", fontSize: 7.5, color: s.light, fontStyle: "italic", lineHeight: 1.6 }}>
-            <div>Elaborado por software Emperador Ledger</div>
-            {pth && <div>Enviado electrónicamente por proveedor tecnológico {pth}</div>}
-          </div>
-
-        </div>
-      </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </>
   );
 }

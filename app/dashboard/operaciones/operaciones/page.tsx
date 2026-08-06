@@ -13,6 +13,8 @@ interface Operacion {
   fecha_apertura: string;
   estado: "ABIERTA" | "EN_CURSO" | "CERRADA" | "CANCELADA";
   piezas: number | null; peso_kg: number | null;
+  // Suma de las cotizaciones; con co-loading piezas/peso_kg solo traen la primera.
+  piezas_total: number | null; peso_kg_total: number | null;
   clientes: ClienteInfo[];
 }
 
@@ -118,8 +120,8 @@ export default function OperacionesPage() {
     },
     apertura: (o) => o.fecha_apertura,
     estado:   (o) => o.estado,
-    piezas:   (o) => o.piezas,
-    peso:     (o) => (o.peso_kg === null ? null : Number(o.peso_kg)),
+    piezas:   (o) => o.piezas_total ?? o.piezas,
+    peso:     (o) => { const p = o.peso_kg_total ?? o.peso_kg; return p === null ? null : Number(p); },
   });
 
   const totalPaginas = Math.max(1, Math.ceil(ordenada.length / porPagina));
@@ -262,9 +264,11 @@ export default function OperacionesPage() {
                         {op.estado.replace("_", " ")}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-[12px] text-gray-600">{op.piezas ?? "—"}</td>
+                    <td className="px-4 py-3 text-right text-[12px] text-gray-600">{(op.piezas_total ?? op.piezas) ?? "—"}</td>
                     <td className="px-4 py-3 text-right text-[12px] text-gray-600">
-                      {op.peso_kg != null ? Number(op.peso_kg).toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "—"}
+                      {(op.peso_kg_total ?? op.peso_kg) != null
+                        ? Number(op.peso_kg_total ?? op.peso_kg).toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+                        : "—"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end">

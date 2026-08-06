@@ -42,7 +42,7 @@ export default function FacturacionElectronicaPage() {
     "numero" | "fecha" | "cliente" | "total" | "dianEstado"
   >("fecha", "desc");
 
-  const [fDianEstado, setFDianEstado] = useState("");
+  const [fDianEstado, setFDianEstado] = useState("pendiente");
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
 
@@ -61,6 +61,26 @@ export default function FacturacionElectronicaPage() {
 
   useEffect(() => { cargar(pagina); }, [pagina]);
   useEffect(() => { setPagina(1); cargar(1); }, [fDianEstado, fDesde, fHasta]);
+
+  const [cfg, setCfg] = useState<{ proveedor: string; ambiente: string; activo: boolean } | null>(null);
+  useEffect(() => {
+    apiFetch<{ proveedor: string; ambiente: string; activo: boolean } | null>("/facturacion/config-electronica")
+      .then(setCfg).catch(() => setCfg(null));
+  }, []);
+
+  const [transmitiendoId, setTransmitiendoId] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  async function transmitir(id: string) {
+    setTransmitiendoId(id); setMsg(null);
+    try {
+      const r = await apiFetch<{ ok: boolean; dian_estado: string; cufe: string | null; mensaje: string; errores: string[] }>(
+        `/facturacion/facturas/${id}/transmitir`, { method: "POST" });
+      const detalle = [r.mensaje, ...(r.errores ?? [])].filter(Boolean).join(" · ");
+      setMsg({ ok: r.ok, texto: `DIAN: ${r.dian_estado}${detalle ? " — " + detalle : ""}${r.cufe ? " (CUFE " + r.cufe.slice(0, 12) + "…)" : ""}` });
+      cargar(pagina);
+    } catch (e) { setMsg({ ok: false, texto: e instanceof Error ? e.message : "Error al transmitir" }); }
+    finally { setTransmitiendoId(null); }
+  }
 
   // El backend pagina; se ordena la página cargada antes de pintarla.
   const ordenada = ordenarFilas(lista, orden, {
@@ -84,10 +104,22 @@ export default function FacturacionElectronicaPage() {
         </div>
       </div>
 
-      {/* Aviso integración pendiente */}
-      <div className="mb-4 shrink-0 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-[12px] text-amber-700">
-        La integración con la DIAN vía PTH aún no está activa. Las facturas se contabilizan normalmente pero el envío electrónico está pendiente de implementación.
-      </div>
+      {/* Estado de la integración (lee la config real) */}
+      {cfg?.activo ? (
+        <div className="mb-4 shrink-0 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-[12px] text-green-700">
+          Integración activa con <strong>{cfg.proveedor}</strong> — ambiente <strong>{cfg.ambiente}</strong>.
+          {cfg.ambiente === "PRUEBAS" && " En pruebas no se afecta la DIAN real."} Usa el botón de transmitir en cada factura para enviarla.
+        </div>
+      ) : (
+        <div className="mb-4 shrink-0 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-[12px] text-amber-700">
+          La integración con la DIAN no está activa. Configúrala y actívala en <strong>Administración → Facturación electrónica</strong>.
+        </div>
+      )}
+      {msg && (
+        <div className={`mb-4 shrink-0 rounded-xl px-4 py-2.5 text-[12px] ${msg.ok ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-600"}`}>
+          {msg.texto}
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-wrap items-end gap-3 mb-4 shrink-0">
@@ -161,10 +193,11 @@ export default function FacturacionElectronicaPage() {
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Imprimir">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                       </a>
-                      {(d.dian_estado === "pendiente" || d.dian_estado === "rechazada") && (
-                        <button disabled title="Integración DIAN pendiente de implementación"
-                          className="p-1.5 text-gray-300 rounded-md cursor-not-allowed" >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>
+                      {(d.dian_estado === null || d.dian_estado === "pendiente" || d.dian_estado === "rechazada") && (
+                        <button onClick={() => transmitir(d.id)} disabled={!cfg?.activo || transmitiendoId === d.id}
+                          title={cfg?.activo ? "Transmitir a la DIAN" : "Activa la integración en Administración → Facturación electrónica"}
+                          className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
                         </button>
                       )}
                     </div>

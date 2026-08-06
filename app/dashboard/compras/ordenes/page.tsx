@@ -36,6 +36,7 @@ interface LineaResp {
   precio_unitario: string; descuento_pct: string; subtotal: string;
   iva_pct: string; total_iva: string; total: string;
   cantidad_recibida: string; pendiente: string;
+  centro_costo_id: string | null; centro_costo_codigo: string | null; centro_costo_nombre: string | null;
 }
 
 interface Oc {

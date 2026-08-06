@@ -101,7 +101,7 @@ function ProductoSearch({ value, onChange }: {
 // ─── Página principal ────────────────────────────────────────────────────────
 
 export default function RemisionesPage() {
-  usePageTitle("Remisiones");
+  const title = usePageTitle() || "Remisiones";
 
   const [lista, setLista]     = useState<RemListItem[]>([]);
   const [total, setTotal]     = useState(0);
@@ -331,6 +331,12 @@ export default function RemisionesPage() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Encabezado */}
+      <div className="flex-none px-6 pt-4 pb-2 bg-white">
+        <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
+        <p className="text-[11px] text-gray-400 mt-0.5">Despachos de mercancía a clientes</p>
+      </div>
+
       {/* Toolbar */}
       <div className="flex-none border-b border-gray-200 px-6 py-3 bg-white">
         <div className="flex flex-wrap items-end gap-3">

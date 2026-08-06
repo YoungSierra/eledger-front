@@ -11,7 +11,9 @@ interface Concepto {
   tipo_calculo: "POR_KG" | "POR_EMBARQUE" | "PORCENTAJE";
   moneda: "USD" | "COP"; activo: boolean;
   cuenta_ingreso_id: string | null; cuenta_ingreso_nombre: string | null;
+  cuenta_devolucion_venta_id: string | null; cuenta_devolucion_venta_nombre: string | null;
   tarifa_iva_id: string | null; tarifa_iva_nombre: string | null;
+  retenciones_ids: string[]; retenciones_nombres: string[];
   um_id: string | null; um_codigo: string | null;
   es_valor_tercero: boolean;
 }
@@ -46,8 +48,16 @@ const TIPO_LABEL: Record<TipoCalculo, string> = {
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
-interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; tarifa_iva_id: string; um_id: string; es_valor_tercero: boolean; }
-const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", tarifa_iva_id: "", um_id: "", es_valor_tercero: false };
+const TIPO_RET_COLOR: Record<string, string> = {
+  RETEFUENTE: "bg-purple-50 text-purple-700",
+  RETEICA:    "bg-orange-50 text-orange-700",
+  RETEIVA:    "bg-blue-50 text-blue-700",
+};
+
+interface Retencion { id: string; tipo: string; nombre: string; porcentaje: string; aplica_venta: boolean; }
+
+interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; cuenta_devolucion_venta_id: string; tarifa_iva_id: string; um_id: string; es_valor_tercero: boolean; retenciones_ids: string[]; }
+const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", cuenta_devolucion_venta_id: "", tarifa_iva_id: "", um_id: "", es_valor_tercero: false, retenciones_ids: [] };
 
 function CuentaSearch({ label, cuentaDisplay, onChange }: {
   label: string; cuentaDisplay: string; onChange: (id: string) => void;
@@ -107,7 +117,9 @@ export default function ConceptosPage() {
   const [error, setError]             = useState("");
   const [tarifasIva, setTarifasIva]   = useState<TarifaIva[]>([]);
   const [unidades, setUnidades]       = useState<UnidadMedida[]>([]);
+  const [retenciones, setRetenciones] = useState<Retencion[]>([]);
   const [cuentaNombre, setCuentaNombre] = useState("");
+  const [cuentaDevNombre, setCuentaDevNombre] = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 20;
   const { orden, alternar } = useOrden<"seccion" | "concepto" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
@@ -116,6 +128,7 @@ export default function ConceptosPage() {
   useEffect(() => {
     apiFetch<TarifaIva[]>("/maestros/tarifas-iva?solo_activas=true").then(setTarifasIva).catch(() => {});
     apiFetch<UnidadMedida[]>("/inventario/unidades-medida?solo_activos=true").then(setUnidades).catch(() => {});
+    apiFetch<Retencion[]>("/maestros/retenciones?solo_activas=true").then(setRetenciones).catch(() => {});
   }, []);
 
   async function cargar() {
@@ -124,23 +137,26 @@ export default function ConceptosPage() {
     setPagina(1);
   }
 
-  function cerrar() { setDrawer(null); setSel(null); setForm(FORM_VACIO); setError(""); setCuentaNombre(""); }
+  function cerrar() { setDrawer(null); setSel(null); setForm(FORM_VACIO); setError(""); setCuentaNombre(""); setCuentaDevNombre(""); }
 
-  function abrirCrear() { setForm(FORM_VACIO); setError(""); setCuentaNombre(""); setDrawer("crear"); }
+  function abrirCrear() { setForm(FORM_VACIO); setError(""); setCuentaNombre(""); setCuentaDevNombre(""); setDrawer("crear"); }
 
   function abrirEditar(c: Concepto) {
     setSel(c);
     setForm({ nombre: c.nombre, seccion: c.seccion, tipo_calculo: c.tipo_calculo, moneda: c.moneda,
-      cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", tarifa_iva_id: c.tarifa_iva_id ?? "", um_id: c.um_id ?? "",
+      cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", cuenta_devolucion_venta_id: c.cuenta_devolucion_venta_id ?? "",
+      tarifa_iva_id: c.tarifa_iva_id ?? "", um_id: c.um_id ?? "",
+      retenciones_ids: c.retenciones_ids ?? [],
       es_valor_tercero: c.es_valor_tercero ?? false });
     setCuentaNombre(c.cuenta_ingreso_nombre ?? "");
+    setCuentaDevNombre(c.cuenta_devolucion_venta_nombre ?? "");
     setError(""); setDrawer("editar");
   }
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError("");
     try {
-      const payload = { ...form, cuenta_ingreso_id: form.cuenta_ingreso_id || null, tarifa_iva_id: form.tarifa_iva_id || null, um_id: form.um_id || null };
+      const payload = { ...form, retenciones_ids: form.es_valor_tercero ? [] : form.retenciones_ids, cuenta_ingreso_id: form.cuenta_ingreso_id || null, cuenta_devolucion_venta_id: form.cuenta_devolucion_venta_id || null, tarifa_iva_id: form.tarifa_iva_id || null, um_id: form.um_id || null };
       if (drawer === "crear") {
         await apiFetch("/operaciones/conceptos", { method: "POST", body: JSON.stringify(payload) });
       } else {
@@ -351,6 +367,11 @@ export default function ConceptosPage() {
                   label={form.es_valor_tercero ? "Cuenta valores para tercero (ej. 2815)" : "Cuenta de ingreso"}
                   cuentaDisplay={cuentaNombre}
                   onChange={(id) => setForm(p => ({ ...p, cuenta_ingreso_id: id }))} />
+                <CuentaSearch
+                  label="Cuenta devolución en ventas"
+                  cuentaDisplay={cuentaDevNombre}
+                  onChange={(id) => setForm(p => ({ ...p, cuenta_devolucion_venta_id: id }))} />
+                <p className="text-[10px] text-gray-400 -mt-2">Débito al registrar una devolución de este concepto. Si se deja vacío, se usa la cuenta de respaldo de Parámetros CxC.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={lbl}>Tarifa de IVA</label>
@@ -369,6 +390,50 @@ export default function ConceptosPage() {
                       {unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo} — {u.nombre}</option>)}
                     </select>
                   </div>
+                </div>
+
+                {/* Retenciones que el cliente practica sobre este concepto. Se
+                    parametrizan igual que el IVA para que la factura las calcule
+                    sola en vez de capturarlas a mano. */}
+                <div>
+                  <label className={lbl}>Retenciones que practica el cliente</label>
+                  {form.es_valor_tercero ? (
+                    <p className="text-[11px] text-gray-400">No se retiene sobre valores recibidos para terceros.</p>
+                  ) : (
+                    <>
+                      <div className="border border-gray-200 rounded-md divide-y divide-gray-100 max-h-52 overflow-y-auto">
+                        {/* Las marcadas van primero, igual que en el maestro de
+                            conceptos de causación: se ve de un vistazo qué aplica. */}
+                        {[...retenciones].filter(r => r.aplica_venta).sort((a, b) => {
+                          const asel = form.retenciones_ids.includes(a.id) ? 0 : 1;
+                          const bsel = form.retenciones_ids.includes(b.id) ? 0 : 1;
+                          return asel - bsel;
+                        }).map((r) => {
+                          const marcada = form.retenciones_ids.includes(r.id);
+                          return (
+                            <label key={r.id} className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer hover:bg-gray-50">
+                              <input type="checkbox" checked={marcada} className="rounded border-gray-300 text-blue-600"
+                                onChange={(e) => setForm(p => ({
+                                  ...p,
+                                  retenciones_ids: e.target.checked
+                                    ? [...p.retenciones_ids, r.id]
+                                    : p.retenciones_ids.filter(x => x !== r.id),
+                                }))} />
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${TIPO_RET_COLOR[r.tipo] ?? "bg-gray-100 text-gray-500"}`}>{r.tipo}</span>
+                              <span className="text-[12px] text-gray-700 flex-1 leading-tight">{r.nombre}</span>
+                              <span className="text-[11px] text-gray-400 shrink-0">{parseFloat(r.porcentaje)}%</span>
+                            </label>
+                          );
+                        })}
+                        {retenciones.filter(r => r.aplica_venta).length === 0 && (
+                          <p className="px-2.5 py-2 text-[11px] text-gray-400">No hay retenciones de venta configuradas.</p>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Al facturar, el sistema agrupa por tarifa y calcula la base sumando las líneas de este concepto.
+                      </p>
+                    </>
+                  )}
                 </div>
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input type="checkbox" className="mt-0.5" checked={form.es_valor_tercero}

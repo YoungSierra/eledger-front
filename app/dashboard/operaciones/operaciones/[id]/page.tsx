@@ -28,11 +28,38 @@ interface Cotizacion {
   estado: string; lineas: CotizacionLinea[];
 }
 
+interface ConfLinea {
+  cotizacion_linea_id: string; seccion: string; orden: number;
+  descripcion: string; tipo_calculo: string; moneda: string;
+  opcional: boolean; valor_tercero: boolean;
+  base_cotizada: string; valor_unitario_cotizado: string; costo_unitario_cotizado: string;
+  minimo: string | null; minimo_costo: string | null;
+  total_venta_cotizado: string; total_costo_cotizado: string;
+  confirmado: boolean;
+  base_confirmada: string; valor_unitario_confirmado: string; costo_unitario_confirmado: string;
+  total_venta_confirmado: string; total_costo_confirmado: string;
+  confirmado_por_nombre: string | null; confirmado_en: string | null;
+  notas_confirmacion: string | null;
+  facturado: string; bloqueada: boolean;
+}
+interface ConfGrupo {
+  cotizacion_id: string; numero: string; cliente_nombre: string;
+  moneda_mercancia: string; trm: string | null; peso_kg: string | null;
+  lineas: ConfLinea[];
+}
+interface ConfResp {
+  operacion_id: string; numero: string;
+  total_lineas: number; lineas_confirmadas: number;
+  cotizaciones: ConfGrupo[];
+}
+
 interface Operacion {
   id: string; numero: string; cotizacion_id: string;
   fecha_apertura: string; estado: string;
   aerolinea_id: string | null;
   piezas: number | null; peso_kg: number | null;
+  // Suma de las cotizaciones; con co-loading piezas/peso_kg solo traen la primera.
+  piezas_total: number | null; peso_kg_total: number | null;
 }
 
 interface Hawb {
@@ -129,6 +156,32 @@ const TIPO_EVENTO: Record<string, string> = {
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 
+// Orden de presentación: sigue el recorrido del embarque, no el alfabético.
+const SECCIONES_ORDEN = [
+  "TRANSPORTE_INTERNACIONAL",
+  "GASTOS_ORIGEN",
+  "GASTOS_DESTINO",
+  "ADUANA",
+  "TRANSPORTE_TERRESTRE",
+  "ALMACENAMIENTO",
+  "SEGURO",
+] as const;
+
+const SECCION_LABEL: Record<string, string> = {
+  TRANSPORTE_INTERNACIONAL: "Transporte internacional",
+  GASTOS_ORIGEN:            "Gastos de origen",
+  GASTOS_DESTINO:           "Gastos en destino",
+  ADUANA:                   "Aduana",
+  TRANSPORTE_TERRESTRE:     "Transporte terrestre",
+  ALMACENAMIENTO:           "Almacenamiento",
+  SEGURO:                   "Seguro",
+};
+
+function ordenSeccion(seccion: string): number {
+  const i = SECCIONES_ORDEN.indexOf(seccion as (typeof SECCIONES_ORDEN)[number]);
+  return i === -1 ? SECCIONES_ORDEN.length : i;
+}
+
 function fmt(n: number | string | null | undefined, dec = 2) {
   const num = typeof n === "string" ? parseFloat(n) : (n ?? 0);
   return (isNaN(num) ? 0 : num).toLocaleString("es-CO", { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -187,7 +240,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [terceroNombres, setTerceroNombres] = useState<Record<string, string>>({});
   const [aerolineas, setAerolineas] = useState<Aerolinea[]>([]);
   const [aeropuertos, setAeropuertos] = useState<Aeropuerto[]>([]);
-  const [tab, setTab] = useState<"datos" | "hawb" | "mawb" | "manifiesto" | "bitacora" | "documentos">("datos");
+  const [tab, setTab] = useState<"datos" | "confirmacion" | "hawb" | "mawb" | "manifiesto" | "bitacora" | "documentos">("datos");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
@@ -211,6 +264,27 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [factVenc, setFactVenc]       = useState("");
   const [factSaving, setFactSaving]   = useState(false);
   const [factError, setFactError]     = useState("");
+
+  // Confirmación de lo cotizado
+  const [conf, setConf] = useState<ConfResp | null>(null);
+  // Buffer de edición: lo que el usuario está tocando antes de guardar.
+  const [confEdit, setConfEdit] = useState<Record<string, { confirmado: boolean; base: string; venta: string; costo: string; nota: string }>>({});
+  // Qué líneas tienen el campo de nota desplegado.
+  const [notaAbierta, setNotaAbierta] = useState<Record<string, boolean>>({});
+
+  // Mover cotización a otra operación (se aprobó sobre la carpeta equivocada)
+  const [moverCot, setMoverCot]       = useState<{ id: string; numero: string } | null>(null);
+  const [moverDestino, setMoverDestino] = useState("");   // "" = operación nueva
+  const [moverMotivo, setMoverMotivo] = useState("");
+  const [moverOps, setMoverOps]       = useState<{ id: string; numero: string; clientes: { nombre: string }[] }[]>([]);
+  const [moverError, setMoverError]   = useState("");
+  const [moverSaving, setMoverSaving] = useState(false);
+  const [confSaving, setConfSaving] = useState(false);
+  const [confError, setConfError]   = useState("");
+  const [confOk, setConfOk]         = useState("");
+  const [pesoMasivo, setPesoMasivo] = useState<Record<string, string>>({});
+  // Con varias cotizaciones (co-loading) la lista es larga: arrancan colapsadas.
+  const [cotAbiertas, setCotAbiertas] = useState<Record<string, boolean>>({});
 
   // Modales (solo Bitácora, Documentos y Manifiesto — HAWB y MAWB tienen página propia)
   const [manifiestoModal, setManifiestoModal] = useState(false);
@@ -260,12 +334,130 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     } catch { /* redirige a /login si sesión expiró */ }
   }, [resolvedId]);
 
+  // El buffer arranca con lo confirmado (o lo cotizado si nunca se tocó).
+  const semillaEdit = useCallback((data: ConfResp) => {
+    const buf: Record<string, { confirmado: boolean; base: string; venta: string; costo: string; nota: string }> = {};
+    data.cotizaciones.forEach((g) => g.lineas.forEach((l) => {
+      buf[l.cotizacion_linea_id] = {
+        confirmado: l.confirmado,
+        base: l.base_confirmada,
+        venta: l.valor_unitario_confirmado,
+        costo: l.costo_unitario_confirmado,
+        nota: l.notas_confirmacion ?? "",
+      };
+    }));
+    setConfEdit(buf);
+    // Deja abiertas las que ya traen nota, para que se vea sin tener que buscarla.
+    setNotaAbierta(Object.fromEntries(
+      data.cotizaciones.flatMap((g) => g.lineas)
+        .filter((l) => (l.notas_confirmacion ?? "").trim() !== "")
+        .map((l) => [l.cotizacion_linea_id, true]),
+    ));
+  }, []);
+
+  const cargarConfirmacion = useCallback(async () => {
+    if (!resolvedId) return;
+    try {
+      const data = await apiFetch<ConfResp>(`/operaciones/operaciones/${resolvedId}/confirmacion`);
+      setConf(data);
+      semillaEdit(data);
+      // Una sola cotización: abierta. Varias: colapsadas, salvo lo que el
+      // usuario ya haya abierto en esta sesión.
+      setCotAbiertas((prev) => {
+        const abrir = data.cotizaciones.length <= 1;
+        const next: Record<string, boolean> = {};
+        data.cotizaciones.forEach((g) => { next[g.cotizacion_id] = prev[g.cotizacion_id] ?? abrir; });
+        return next;
+      });
+    } catch { /* sesión */ }
+  }, [resolvedId, semillaEdit]);
+
   useEffect(() => {
     if (!resolvedId) return;
     cargarCarpeta();
     apiFetch<Aerolinea[]>("/operaciones/aerolineas?solo_activas=true").then(setAerolineas).catch(() => {});
     apiFetch<Aeropuerto[]>("/operaciones/aeropuertos?solo_activos=true").then(setAeropuertos).catch(() => {});
   }, [resolvedId, cargarCarpeta]);
+
+  useEffect(() => { cargarConfirmacion(); }, [cargarConfirmacion]);
+
+  // El aviso de guardado se retira solo; el de error se queda hasta corregirlo.
+  useEffect(() => {
+    if (!confOk) return;
+    const t = setTimeout(() => setConfOk(""), 4000);
+    return () => clearTimeout(t);
+  }, [confOk]);
+
+  async function guardarConfirmacion() {
+    if (!conf) return;
+    setConfSaving(true); setConfError(""); setConfOk("");
+    try {
+      const lineas = conf.cotizaciones.flatMap((g) => g.lineas)
+        .filter((l) => !l.bloqueada)
+        .map((l) => {
+          const e = confEdit[l.cotizacion_linea_id];
+          return {
+            cotizacion_linea_id: l.cotizacion_linea_id,
+            confirmado: e?.confirmado ?? false,
+            base_confirmada: e?.base || "0",
+            valor_unitario_confirmado: e?.venta || "0",
+            costo_unitario_confirmado: e?.costo || "0",
+            notas: e?.nota ?? "",
+          };
+        });
+      const data = await apiFetch<ConfResp>(`/operaciones/operaciones/${conf.operacion_id}/confirmacion`, {
+        method: "PUT", body: JSON.stringify({ lineas }),
+      });
+      setConf(data); semillaEdit(data);
+      setConfOk(`Cambios guardados · ${data.lineas_confirmadas} de ${data.total_lineas} conceptos confirmados`);
+      await cargarCarpeta();   // el estado de facturación de las tarjetas cambia
+    } catch (e) {
+      setConfError(e instanceof Error ? e.message : "No se pudo guardar la confirmación");
+    } finally { setConfSaving(false); }
+  }
+
+  async function aplicarPesoMasivo(cotizacionId: string) {
+    const peso = pesoMasivo[cotizacionId];
+    if (!conf || !peso || parseFloat(peso) <= 0) return;
+    setConfSaving(true); setConfError(""); setConfOk("");
+    try {
+      const data = await apiFetch<ConfResp>(`/operaciones/operaciones/${conf.operacion_id}/confirmacion/aplicar-peso`, {
+        method: "POST", body: JSON.stringify({ cotizacion_id: cotizacionId, peso_kg: peso }),
+      });
+      setConf(data); semillaEdit(data);
+      setPesoMasivo((p) => ({ ...p, [cotizacionId]: "" }));
+      setConfOk(`Peso aplicado a las líneas POR_KG · ${peso} kg`);
+    } catch (e) {
+      setConfError(e instanceof Error ? e.message : "No se pudo aplicar el peso");
+    } finally { setConfSaving(false); }
+  }
+
+  async function abrirMover(cotId: string, cotNumero: string) {
+    setMoverCot({ id: cotId, numero: cotNumero });
+    setMoverDestino(""); setMoverMotivo(""); setMoverError("");
+    try {
+      const ops = await apiFetch<{ id: string; numero: string; clientes: { nombre: string }[] }[]>(
+        "/operaciones/operaciones?estado=ABIERTA");
+      setMoverOps(ops.filter((o) => o.id !== resolvedId));
+    } catch { setMoverOps([]); }
+  }
+
+  async function confirmarMover() {
+    if (!moverCot || !moverMotivo.trim()) return;
+    setMoverSaving(true); setMoverError("");
+    try {
+      const destino = await apiFetch<{ numero: string }>(
+        `/operaciones/cotizaciones/${moverCot.id}/mover`,
+        { method: "POST", body: JSON.stringify({ operacion_id: moverDestino || null, motivo: moverMotivo.trim() }) },
+      );
+      setMoverCot(null);
+      await cargarCarpeta();
+      await cargarConfirmacion();
+      setConfOk(`${moverCot.numero} se movió a ${destino.numero}`);
+    } catch (e) {
+      setMoverError(e instanceof Error ? e.message : "No se pudo mover la cotización");
+    } finally { setMoverSaving(false); }
+  }
 
   async function cambiarEstadoOp(nuevoEstado: string) {
     if (!carpeta) return;
@@ -486,7 +678,12 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const mawbBorr = mawbs.filter((m) => m.estado === "BORRADOR").length;
   const hawbBorr = hawbs.filter((h) => h.estado === "BORRADOR").length;
   const manifBorr = manifiestos.filter((m) => m.estado === "BORRADOR").length;
-  const puedeCerrar = mawbBorr === 0 && hawbBorr === 0 && manifBorr === 0;
+  // Y tampoco con conceptos no opcionales sin confirmar: lo no confirmado no es
+  // facturable, y una operación cerrada ya no se toca.
+  const sinConfirmar = (conf?.cotizaciones ?? [])
+    .flatMap((g) => g.lineas)
+    .filter((l) => !l.opcional && !l.confirmado).length;
+  const puedeCerrar = mawbBorr === 0 && hawbBorr === 0 && manifBorr === 0 && sinConfirmar === 0;
 
   const aerolineaNombre = (id: string | null) => {
     const a = aerolineas.find((x) => x.id === id);
@@ -498,7 +695,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   };
 
   const TABS = [
-    { key: "datos",       label: "Datos",       count: null },
+    { key: "datos",        label: "Datos",        count: null },
+    // El contador muestra lo que traba el cierre: los opcionales no cuentan.
+    { key: "confirmacion", label: "Confirmación", count: conf ? sinConfirmar : null },
     { key: "mawb",        label: "MAWB",        count: mawbs.length },
     { key: "hawb",        label: "HAWB",        count: hawbs.length },
     { key: "manifiesto",  label: "Manifiesto",  count: manifiestos.length },
@@ -507,7 +706,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   ] as const;
 
   return (
-    <div className="max-w-7xl space-y-4">
+    <div className="max-w-[1600px] space-y-4">
 
       {/* ── Encabezado ────────────────────────────────────────────────── */}
       <div>
@@ -705,6 +904,63 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         </div>
       )}
 
+      {moverCot && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Mover cotización</h2>
+            <p className="text-[12px] text-gray-500 mb-4">
+              <strong className="font-mono text-blue-700">{moverCot.numero}</strong> sale de {operacion.numero}.
+              No se puede mover si ya tiene confirmación, guía emitida o facturas.
+            </p>
+
+            {moverError && (
+              <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">{moverError}</p>
+            )}
+
+            <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Destino</label>
+            <div className="space-y-1.5 mb-4 max-h-56 overflow-y-auto">
+              <button onClick={() => setMoverDestino("")}
+                className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
+                  moverDestino === "" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 hover:bg-gray-50"
+                }`}>
+                <span className="font-semibold">Operación nueva</span>
+                <span className="block text-[10px] text-gray-400">Se abre una carpeta solo con esta cotización</span>
+              </button>
+              {moverOps.map((o) => (
+                <button key={o.id} onClick={() => setMoverDestino(o.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg border text-[12px] transition-colors ${
+                    moverDestino === o.id ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 hover:bg-gray-50"
+                  }`}>
+                  <span className="font-mono font-semibold">{o.numero}</span>
+                  <span className="block text-[10px] text-gray-400 truncate">
+                    {o.clientes.map((c) => c.nombre).join(", ") || "Sin clientes"}
+                  </span>
+                </button>
+              ))}
+              {moverOps.length === 0 && (
+                <p className="text-[11px] text-gray-400 px-1 py-1">No hay otras operaciones abiertas.</p>
+              )}
+            </div>
+
+            <label className="block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Motivo *</label>
+            <input value={moverMotivo} onChange={(e) => setMoverMotivo(e.target.value)}
+              placeholder="Ej: se aprobó sobre la operación equivocada"
+              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] mb-4" />
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setMoverCot(null)} disabled={moverSaving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={confirmarMover} disabled={moverSaving || !moverMotivo.trim()}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {moverSaving ? "Moviendo..." : "Mover"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmarCerrar && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
@@ -714,10 +970,24 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 ¿Confirmas cerrar la operación <strong>{operacion.numero}</strong>? Se dará por finalizada.
               </p>
             ) : (
-              <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">
-                No se puede cerrar: hay {[mawbBorr && `${mawbBorr} MAWB`, hawbBorr && `${hawbBorr} HAWB`, manifBorr && `${manifBorr} manifiesto(s)`].filter(Boolean).join(" y ")} en borrador.
-                Deben estar emitidos o anulados antes de cerrar.
-              </p>
+              <div className="space-y-2 mb-3">
+                {(mawbBorr > 0 || hawbBorr > 0 || manifBorr > 0) && (
+                  <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">
+                    Hay {[mawbBorr && `${mawbBorr} MAWB`, hawbBorr && `${hawbBorr} HAWB`, manifBorr && `${manifBorr} manifiesto(s)`].filter(Boolean).join(" y ")} en borrador.
+                    Deben estar emitidos o anulados antes de cerrar.
+                  </p>
+                )}
+                {sinConfirmar > 0 && (
+                  <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">
+                    Hay <strong>{sinConfirmar} concepto(s) sin confirmar</strong>. Sin confirmar no se pueden facturar,
+                    y una operación cerrada ya no se modifica.
+                    <button onClick={() => { setConfirmarCerrar(false); setTab("confirmacion"); }}
+                      className="block mt-1 text-blue-600 hover:text-blue-700 font-semibold underline">
+                      Ir a Confirmación
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmarCerrar(false)} disabled={saving}
@@ -818,15 +1088,23 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                   };
                   const facturado = sumar("facturado"); const pendiente = sumar("pendiente");
                   const est = fe.estado_facturacion;
-                  const style = est === "facturada" ? "bg-green-50 text-green-700" : est === "parcial" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500";
+                  const style = est === "facturada" ? "bg-green-50 text-green-700"
+                    : est === "parcial" ? "bg-amber-50 text-amber-700"
+                    : est === "sin_confirmar" ? "bg-purple-50 text-purple-700"
+                    : "bg-gray-100 text-gray-500";
                   return (
                     <div className="border-t border-gray-100 pt-2 mt-1 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Facturación</span>
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold uppercase ${style}`}>{est}</span>
+                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold uppercase ${style}`}>{est.replace("_", " ")}</span>
                       </div>
                       <div className="flex justify-between text-[11px]"><span className="text-gray-400">Facturado</span><span className="font-mono text-emerald-700">{facturado || "—"}</span></div>
                       <div className="flex justify-between text-[11px]"><span className="text-gray-400">Pendiente</span><span className="font-mono text-gray-700">{pendiente || "—"}</span></div>
+                      {est === "sin_confirmar" && (
+                        <p className="text-[10px] text-purple-600 leading-snug">
+                          Operación no ha confirmado conceptos. Sin confirmación no se puede facturar.
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
@@ -835,10 +1113,24 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                     className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
                     Ver cotización ↗
                   </button>
-                  <button onClick={() => abrirFacturar(cot.id, cot.numero)}
-                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold border border-emerald-200 bg-emerald-50 rounded-md px-2 py-0.5">
-                    Facturar
-                  </button>
+                  {factEstados[cot.id]?.estado_facturacion === "sin_confirmar" ? (
+                    <button onClick={() => setTab("confirmacion")}
+                      className="text-[11px] text-purple-700 hover:text-purple-800 font-semibold border border-purple-200 bg-purple-50 rounded-md px-2 py-0.5">
+                      Confirmar
+                    </button>
+                  ) : (
+                    <button onClick={() => abrirFacturar(cot.id, cot.numero)}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold border border-emerald-200 bg-emerald-50 rounded-md px-2 py-0.5">
+                      Facturar
+                    </button>
+                  )}
+                  {!opBloqueada && cotizaciones.length > 1 && (
+                    <button onClick={() => abrirMover(cot.id, cot.numero)}
+                      title="Se aprobó sobre la operación equivocada"
+                      className="ml-auto text-[11px] text-gray-500 hover:text-blue-600 font-medium">
+                      Mover ↗
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -853,16 +1145,267 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 ["Aerolínea", aerolineaNombre(operacion.aerolinea_id)],
                 ["Aeropuerto origen", aeropuertoNombre(mawbs[0]?.aeropuerto_origen_id ?? null)],
                 ["Aeropuerto destino", aeropuertoNombre(mawbs[0]?.aeropuerto_destino_id ?? null)],
-                ["Piezas", operacion.piezas?.toString() ?? "—"],
-                ["Peso kg", operacion.peso_kg ? fmt(operacion.peso_kg, 4) : "—"],
+                ["Piezas", (operacion.piezas_total ?? operacion.piezas)?.toString() ?? "—"],
+                ["Peso kg", (operacion.peso_kg_total ?? operacion.peso_kg) ? fmt(operacion.peso_kg_total ?? operacion.peso_kg, 2) : "—"],
               ] as [string, string][]).map(([k, v]) => (
                 <div key={k} className="flex justify-between text-[12px]">
                   <span className="text-gray-400">{k}</span>
-                  <span className="text-gray-800 font-medium">{v}</span>
+                  <span className={k === "Número operación" ? "text-blue-700 font-semibold" : "text-gray-800 font-medium"}>{v}</span>
                 </div>
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Tab: Confirmación ─────────────────────────────────────────── */}
+      {tab === "confirmacion" && (
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-[11px] text-gray-500 max-w-2xl">
+              Operación confirma lo que realmente se ejecutó. Solo lo confirmado se puede facturar.
+              Los valores llegan precargados con lo cotizado; ajústalos si cambiaron.
+              Una línea con facturación queda bloqueada.
+            </p>
+            <div className="flex items-center gap-3 shrink-0">
+              {conf && conf.cotizaciones.length > 1 && (() => {
+                const todasAbiertas = conf.cotizaciones.every((g) => cotAbiertas[g.cotizacion_id]);
+                return (
+                  <button type="button"
+                    onClick={() => setCotAbiertas(Object.fromEntries(
+                      conf.cotizaciones.map((g) => [g.cotizacion_id, !todasAbiertas]),
+                    ))}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium whitespace-nowrap">
+                    {todasAbiertas ? "Contraer todo" : "Expandir todo"}
+                  </button>
+                );
+              })()}
+              <button onClick={guardarConfirmacion} disabled={confSaving}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg disabled:opacity-50">
+                {confSaving ? "Guardando…" : "Guardar confirmación"}
+              </button>
+            </div>
+          </div>
+
+          {confError && (
+            <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-600">{confError}</div>
+          )}
+
+          {confOk && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-[12px] text-green-700">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {confOk}
+            </div>
+          )}
+
+          {conf && conf.cotizaciones.length === 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-[12px] text-gray-400">
+              Esta operación no tiene cotizaciones asociadas.
+            </div>
+          )}
+
+          {conf?.cotizaciones.map((g) => {
+            const porSeccion: Record<string, ConfLinea[]> = {};
+            g.lineas.forEach((l) => { (porSeccion[l.seccion] ??= []).push(l); });
+            const hayPorKg = g.lineas.some((l) => l.tipo_calculo === "POR_KG" && !l.bloqueada);
+            const abierta = cotAbiertas[g.cotizacion_id] ?? false;
+            const pendientes = g.lineas.filter((l) => !(confEdit[l.cotizacion_linea_id]?.confirmado ?? l.confirmado)).length;
+            return (
+              <div key={g.cotizacion_id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                {/* Encabezado de la cotización */}
+                <div className={`flex flex-wrap items-center gap-3 px-4 py-2.5 bg-gray-50 ${abierta ? "border-b border-gray-200" : ""}`}>
+                  <button type="button"
+                    onClick={() => setCotAbiertas((p) => ({ ...p, [g.cotizacion_id]: !abierta }))}
+                    className="flex items-center gap-2 text-left hover:opacity-70 transition-opacity">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                      className="text-gray-400 shrink-0"
+                      style={{ transform: abierta ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                    <span className="text-[12px] font-bold text-gray-800">{g.numero}</span>
+                    <span className="text-[11px] text-gray-500">{g.cliente_nombre}</span>
+                  </button>
+                  {g.peso_kg && <span className="text-[10px] text-gray-400">Cotizado {fmt(g.peso_kg)} kg</span>}
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold uppercase ${
+                    pendientes === 0 ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"
+                  }`}>
+                    {pendientes === 0 ? `${g.lineas.length} confirmadas` : `${pendientes} sin confirmar`}
+                  </span>
+                  <div className="flex-1" />
+                  {abierta && hayPorKg && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Peso real</label>
+                      <MontoInput value={pesoMasivo[g.cotizacion_id] ?? ""} decimales={2}
+                        onChange={(v) => setPesoMasivo((p) => ({ ...p, [g.cotizacion_id]: v }))}
+                        className="w-24 px-2 py-1 border border-gray-200 rounded text-[11px] text-right font-mono" />
+                      <button onClick={() => aplicarPesoMasivo(g.cotizacion_id)} disabled={confSaving}
+                        className="px-2.5 py-1 text-[11px] text-blue-600 border border-blue-200 rounded hover:bg-blue-50 disabled:opacity-50">
+                        Aplicar a POR_KG
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Encabezado — dos bloques espejo: cotizado (fijo) | confirmado (editable) */}
+                {abierta && (
+                <>
+                  <div className="flex items-end gap-2 px-4 pt-2 text-[9px] font-bold uppercase tracking-widest">
+                    <div className="w-8 shrink-0" />
+                    <div className="flex-1 min-w-0" />
+                    <div className="w-[356px] shrink-0 text-center text-gray-400 pr-3">Cotizado</div>
+                    <div className="w-[464px] shrink-0 text-center text-blue-600 pl-3 border-l border-gray-200">Confirmado por operaciones</div>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-100 text-[9px] font-bold uppercase tracking-wider text-gray-300">
+                    <div className="w-8 shrink-0 text-center">OK</div>
+                    <div className="flex-1 min-w-0">Concepto</div>
+                    <div className="w-[356px] shrink-0 flex items-center gap-2 pr-3">
+                      <div className="w-16 text-right">Base</div>
+                      <div className="w-20 text-right">Venta</div>
+                      <div className="w-20 text-right">Costo</div>
+                      <div className="w-24 text-right">Total</div>
+                    </div>
+                    <div className="w-[464px] shrink-0 flex items-center gap-2 pl-3 border-l border-gray-200">
+                      <div className="w-20 text-right">Base</div>
+                      <div className="w-24 text-right">Venta</div>
+                      <div className="w-24 text-right">Costo</div>
+                      <div className="w-28 text-right">Total</div>
+                      <div className="w-9 text-center">Nota</div>
+                    </div>
+                  </div>
+                </>
+                )}
+
+                {abierta && Object.entries(porSeccion)
+                  .sort(([a], [b]) => ordenSeccion(a) - ordenSeccion(b))
+                  .map(([seccion, filas]) => (
+                  <div key={seccion}>
+                    <div className="px-4 py-1.5 bg-gray-50/60 border-b border-gray-100">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
+                        {SECCION_LABEL[seccion] ?? seccion}
+                      </span>
+                    </div>
+                    {filas.map((l) => {
+                      const e = confEdit[l.cotizacion_linea_id];
+                      const cambiado = parseFloat(l.total_venta_confirmado) !== parseFloat(l.total_venta_cotizado);
+                      const tieneNota = (e?.nota ?? "").trim() !== "";
+                      const set = (campo: "base" | "venta" | "costo" | "nota", v: string) =>
+                        setConfEdit((p) => ({ ...p, [l.cotizacion_linea_id]: { ...p[l.cotizacion_linea_id], [campo]: v } }));
+                      const alternarConfirmado = () => {
+                        if (l.bloqueada) return;
+                        setConfEdit((p) => ({
+                          ...p,
+                          [l.cotizacion_linea_id]: { ...p[l.cotizacion_linea_id], confirmado: !p[l.cotizacion_linea_id]?.confirmado },
+                        }));
+                      };
+                      return (
+                        <div key={l.cotizacion_linea_id}>
+                        <div
+                          className={`flex items-center gap-2 px-4 py-2 border-b border-gray-50 ${l.bloqueada ? "bg-gray-50/70" : "hover:bg-blue-50/20"}`}>
+                          <div className="w-8 shrink-0 flex justify-center">
+                            <input type="checkbox" checked={e?.confirmado ?? false} disabled={l.bloqueada}
+                              onChange={alternarConfirmado}
+                              className="rounded border-gray-300 text-blue-600 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed" />
+                          </div>
+                          {/* Hacer clic en el concepto marca/desmarca — el check solo es muy pequeño */}
+                          <div className="flex-1 min-w-0 select-none"
+                            onClick={alternarConfirmado}
+                            title={l.bloqueada ? "Línea facturada: no se puede desconfirmar" : "Clic para confirmar o desconfirmar"}
+                            style={{ cursor: l.bloqueada ? "not-allowed" : "pointer" }}>
+                            <p className={`text-[12px] truncate ${l.opcional ? "text-gray-500 italic" : "text-gray-800"}`}>
+                              {l.descripcion}
+                              {l.opcional && (
+                                <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded not-italic">Opcional</span>
+                              )}
+                              {l.valor_tercero && (
+                                <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded not-italic">Tercero</span>
+                              )}
+                              {l.bloqueada && (
+                                <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded not-italic">Facturada</span>
+                              )}
+                            </p>
+                            <p className="text-[10px] text-gray-400">
+                              {l.tipo_calculo}
+                              {l.confirmado_por_nombre && ` · confirmó ${l.confirmado_por_nombre}`}
+                            </p>
+                          </div>
+                          {/* Cotizado — solo lectura, es el documento comercial */}
+                          <div className="w-[356px] shrink-0 flex items-center gap-2 pr-3 text-[11px] font-mono text-gray-400">
+                            <span className="w-16 text-right">{l.tipo_calculo === "POR_KG" ? fmt(l.base_cotizada) : "—"}</span>
+                            <span className="w-20 text-right">{fmt(l.valor_unitario_cotizado)}</span>
+                            <span className="w-20 text-right">{fmt(l.costo_unitario_cotizado)}</span>
+                            <span className="w-24 text-right text-gray-500">{fmt(l.total_venta_cotizado)}</span>
+                          </div>
+                          {/* Confirmado — editable */}
+                          <div className="w-[464px] shrink-0 flex items-center gap-2 pl-3 border-l border-gray-200">
+                            <div className="w-20">
+                              <MontoInput value={e?.base ?? ""} decimales={2} disabled={l.bloqueada || l.tipo_calculo !== "POR_KG"}
+                                onChange={(v) => set("base", v)}
+                                className="w-full px-2 py-1 border border-gray-200 rounded text-[11px] text-right font-mono disabled:bg-gray-50 disabled:text-gray-300 disabled:border-gray-100" />
+                            </div>
+                            <div className="w-24">
+                              <MontoInput value={e?.venta ?? ""} decimales={2} disabled={l.bloqueada}
+                                onChange={(v) => set("venta", v)}
+                                className="w-full px-2 py-1 border border-gray-200 rounded text-[11px] text-right font-mono disabled:bg-gray-50 disabled:text-gray-400" />
+                            </div>
+                            <div className="w-24">
+                              <MontoInput value={e?.costo ?? ""} decimales={2} disabled={l.bloqueada}
+                                onChange={(v) => set("costo", v)}
+                                className="w-full px-2 py-1 border border-gray-200 rounded text-[11px] text-right font-mono disabled:bg-gray-50 disabled:text-gray-400" />
+                            </div>
+                            <div className="w-28 text-right">
+                              <span className={`text-[12px] font-mono font-semibold ${cambiado ? "text-amber-600" : "text-gray-800"}`}>
+                                {fmt(l.total_venta_confirmado)}
+                              </span>
+                              <span className="ml-1 text-[9px] font-bold text-blue-500">{l.moneda}</span>
+                            </div>
+                            {/* Motivo del cambio */}
+                            <div className="w-9 flex justify-center">
+                              <button type="button" disabled={l.bloqueada && !tieneNota}
+                                onClick={() => setNotaAbierta((p) => ({ ...p, [l.cotizacion_linea_id]: !p[l.cotizacion_linea_id] }))}
+                                title={tieneNota ? "Ver o editar el motivo" : "Anotar el motivo del cambio"}
+                                className={`p-1.5 rounded-md border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                                  tieneNota
+                                    ? "bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100"
+                                    : cambiado
+                                      ? "bg-amber-50 border-amber-300 text-amber-600 hover:bg-amber-100"
+                                      : "bg-white border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-300"
+                                }`}>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                  <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Motivo del cambio — queda con la línea, para saber después
+                            por qué lo ejecutado no coincide con lo cotizado. */}
+                        {notaAbierta[l.cotizacion_linea_id] && (
+                          <div className="flex items-start gap-2 px-4 pb-2 -mt-1 border-b border-gray-50 bg-blue-50/20">
+                            <div className="w-8 shrink-0" />
+                            <div className="flex-1 min-w-0" />
+                            <div className="w-[356px] shrink-0 pr-3" />
+                            <div className="w-[464px] shrink-0 pl-3 border-l border-gray-200">
+                              <input
+                                value={e?.nota ?? ""}
+                                onChange={(ev) => set("nota", ev.target.value)}
+                                disabled={l.bloqueada}
+                                placeholder="Motivo del cambio — ej: el proveedor cobró sobrepeso"
+                                className="w-full px-2 py-1 border border-gray-200 rounded text-[11px] text-gray-700 placeholder:text-gray-300 disabled:bg-gray-50 disabled:text-gray-400" />
+                            </div>
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
 

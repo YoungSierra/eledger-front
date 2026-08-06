@@ -21,12 +21,14 @@ interface Linea {
   valor_unitario: number;
   costo_unitario: number;
   base: number;
-  minimo: number | null;
+  minimo: number | null;        // de venta
+  minimo_costo: number | null;  // del proveedor
   total_venta: number;
   total_costo: number;
   moneda: string;
   proveedor_id: string | null;
   valor_tercero: boolean;
+  opcional: boolean;
   condiciones_costo: string;
   notas: string;
   _proveedor_nombre?: string;
@@ -91,7 +93,22 @@ function toInput(v: number | string | null | undefined, fallback = ""): string {
   return isNaN(n) ? fallback : String(n);
 }
 
-function calcTotal(tipo: string, valorU: number, base: number, minimo: number | null, valorCifBase: number, trm: number, monedaLinea: string, monedaCif: string, aplicarMinimo = true): number {
+// Fecha local, nunca toISOString(): en UTC-5 después de las 19:00 devuelve el día siguiente.
+function hoyLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Vigencia por defecto: 15 días desde la fecha de la cotización.
+function sumarDias(fechaISO: string, dias: number): string {
+  if (!fechaISO) return "";
+  const [a, m, d] = fechaISO.split("-").map(Number);
+  const f = new Date(a, m - 1, d);
+  f.setDate(f.getDate() + dias);
+  return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}-${String(f.getDate()).padStart(2, "0")}`;
+}
+
+function calcTotal(tipo: string, valorU: number, base: number, minimo: number | null, valorCifBase: number, trm: number, monedaLinea: string, monedaCif: string): number {
   let total = 0;
   if (tipo === "PORCENTAJE") {
     let vm = valorCifBase || 0;
@@ -102,8 +119,8 @@ function calcTotal(tipo: string, valorU: number, base: number, minimo: number | 
   } else {
     total = valorU * (base || 1);
   }
-  // El mínimo es condición comercial — solo aplica a la venta, no al costo
-  if (aplicarMinimo && minimo !== null && total < minimo) total = minimo;
+  // Cada lado tiene su propio mínimo: el del proveedor no es el del cliente.
+  if (minimo !== null && total < minimo) total = minimo;
   // Porcentajes sobre CIF se elevan al peso entero superior (práctica aduanera Colombia)
   if (tipo === "PORCENTAJE") return Math.ceil(total);
   return Math.round(total * 10000) / 10000;
@@ -248,9 +265,10 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
     _proveedor_nombre: linea._proveedor_nombre ?? "",
   } : {
     seccion, orden: 0, concepto_id: null, descripcion: "", tipo_calculo: "POR_EMBARQUE",
-    valor_unitario: 0, costo_unitario: 0, base: baseDefault, minimo: null,
+    valor_unitario: 0, costo_unitario: 0, base: baseDefault, minimo: null, minimo_costo: null,
     total_venta: 0, total_costo: 0, moneda: "USD",
-    proveedor_id: null, valor_tercero: false, condiciones_costo: "", notas: "", _proveedor_nombre: "",
+    proveedor_id: null, valor_tercero: false, opcional: false,
+    condiciones_costo: "", notas: "", _proveedor_nombre: "",
   });
 
   // Strings de display para campos numéricos — evita que "0." se convierta a "0" al parsear
@@ -258,6 +276,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
   const [sCosto, setSCosto] = useState(() => toInput(linea?.costo_unitario, "0"));
   const [sBase,  setSBase]  = useState(() => linea ? toInput(linea.base, "1") : toInput(baseDefault, "1"));
   const [sMin,   setSMin]   = useState(() => linea?.minimo != null ? toInput(linea.minimo, "") : "");
+  const [sMinCosto, setSMinCosto] = useState(() => linea?.minimo_costo != null ? toInput(linea.minimo_costo, "") : "");
 
   const conceptosSec = conceptos.filter((c) => c.seccion === seccion);
 
@@ -274,8 +293,8 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
   function recalc(f: Linea): Linea {
     return {
       ...f,
-      total_venta: calcTotal(f.tipo_calculo, f.valor_unitario, f.base, f.minimo, valorCif, trm, f.moneda, monedaMercancia, true),
-      total_costo: calcTotal(f.tipo_calculo, f.costo_unitario, f.base, f.minimo, valorCif, trm, f.moneda, monedaMercancia, false),
+      total_venta: calcTotal(f.tipo_calculo, f.valor_unitario, f.base, f.minimo, valorCif, trm, f.moneda, monedaMercancia),
+      total_costo: calcTotal(f.tipo_calculo, f.costo_unitario, f.base, f.minimo_costo, valorCif, trm, f.moneda, monedaMercancia),
     };
   }
 
@@ -284,7 +303,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
   }
 
   function setNumeric(
-    key: "valor_unitario" | "costo_unitario" | "base" | "minimo",
+    key: "valor_unitario" | "costo_unitario" | "base" | "minimo" | "minimo_costo",
     raw: string,
     setter: (s: string) => void,
     fallback: number | null,
@@ -299,7 +318,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
         <h3 className="text-[13px] font-semibold text-gray-800 mb-4">
           {linea ? "Editar línea" : "Nueva línea"} — {SECCIONES.find((s) => s.key === seccion)?.label}
         </h3>
@@ -352,24 +371,31 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          {/* Venta y costo, cada uno con su propio mínimo */}
+          <div className="grid grid-cols-4 gap-2">
             <div>
-              <label className={labelCls}>Val. venta {form.tipo_calculo === "PORCENTAJE" ? "(%" : form.tipo_calculo === "POR_KG" ? "($/kg)" : "($/emb)"}</label>
+              <label className={labelCls}>Val. venta {form.tipo_calculo === "PORCENTAJE" ? "(%)" : form.tipo_calculo === "POR_KG" ? "($/kg)" : "($/emb)"}</label>
               <input type="text" inputMode="decimal" className={inputCls}
                 value={sVenta}
                 onChange={(e) => setNumeric("valor_unitario", e.target.value, setSVenta, 0)} />
             </div>
             <div>
-              <label className={labelCls}>Costo</label>
+              <label className={labelCls}>Mín. venta</label>
+              <input type="text" inputMode="decimal" className={inputCls}
+                value={sMin} placeholder="—"
+                onChange={(e) => setNumeric("minimo", e.target.value, setSMin, null)} />
+            </div>
+            <div>
+              <label className={labelCls}>Costo {form.tipo_calculo === "PORCENTAJE" ? "(%)" : form.tipo_calculo === "POR_KG" ? "($/kg)" : "($/emb)"}</label>
               <input type="text" inputMode="decimal" className={inputCls}
                 value={sCosto}
                 onChange={(e) => setNumeric("costo_unitario", e.target.value, setSCosto, 0)} />
             </div>
             <div>
-              <label className={labelCls}>Mínimo</label>
+              <label className={labelCls}>Mín. costo</label>
               <input type="text" inputMode="decimal" className={inputCls}
-                value={sMin} placeholder="—"
-                onChange={(e) => setNumeric("minimo", e.target.value, setSMin, null)} />
+                value={sMinCosto} placeholder="—"
+                onChange={(e) => setNumeric("minimo_costo", e.target.value, setSMinCosto, null)} />
             </div>
           </div>
 
@@ -409,6 +435,14 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
               <span className="block text-[10px] text-gray-400">Opcional. El facturador lo confirma al facturar. Si se marca, no genera ingreso propio ni IVA: se traslada al tercero.</span>
             </span>
           </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={form.opcional}
+              onChange={(e) => setForm((p) => ({ ...p, opcional: e.target.checked }))} />
+            <span>
+              <span className="text-[12px] text-gray-700 font-medium">Concepto opcional</span>
+              <span className="block text-[10px] text-gray-400">Puede o no ejecutarse. Se cotiza con su valor pero no suma en la sección ni en el total, y sale aparte en la impresión. Solo se factura si operación lo confirma.</span>
+            </span>
+          </label>
           <div>
             <label className={labelCls}>Condiciones / instrucción operativa</label>
             <textarea rows={2} className={inputCls + " resize-none"}
@@ -439,7 +473,7 @@ function LineaModal({ seccion, linea, valorCif, monedaMercancia, trm, pesoKg, co
 export default function CotizacionForm({ id }: { id: string }) {
   const router  = useRouter();
   const isNueva = id === "nueva";
-  const [panelW, setPanelW] = useState(280);
+  const [panelW, setPanelW] = useState(360);
   const dragging = useRef(false);
 
   // Catálogos
@@ -452,8 +486,12 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [clienteId, setClienteId]     = useState("");
   const [clienteNombre, setClienteNombre] = useState("");
   const [asesorId, setAsesorId]       = useState("");
-  const [fecha, setFecha]             = useState(new Date().toISOString().slice(0, 10));
-  const [vigencia, setVigencia]       = useState("");
+  const [fecha, setFecha]             = useState(hoyLocal());
+  // Días de vigencia: valor de arranque hasta que llegue dias_validez_cotizacion.
+  const [diasValidez, setDiasValidez] = useState(15);
+  const [vigencia, setVigencia]       = useState(() => sumarDias(hoyLocal(), 15));
+  // Si el usuario la toca a mano deja de seguir a la fecha.
+  const [vigenciaManual, setVigenciaManual] = useState(false);
   const [tipoOp, setTipoOp]           = useState("IMPORTACION");
   const [origen, setOrigen]           = useState("");
   const [destino, setDestino]         = useState("");
@@ -497,6 +535,10 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [opElegida, setOpElegida]     = useState("");   // "" = nueva operación
   const [busquedaOp, setBusquedaOp]   = useState("");
 
+  // Parámetros globales (adm_configuracion). Arranca permitiendo reabrir para no
+  // parpadear el botón mientras carga; el backend es el que manda de todos modos.
+  const [permiteReabrir, setPermiteReabrir] = useState(true);
+
   // Cargar catálogos
   useEffect(() => {
     Promise.all([
@@ -505,6 +547,19 @@ export default function CotizacionForm({ id }: { id: string }) {
     ]).then(([a, c]) => { setAerolineas(a); setConceptos(c); });
     apiFetch<{id:string;nombre:string;apellido:string;es_asesor:boolean}[]>("/usuarios?solo_activos=true")
       .then((data) => setAsesores(data.filter((u) => u.es_asesor))).catch(() => {});
+
+    // Parámetros globales: si se puede reabrir y cuántos días de vigencia.
+    apiFetch<{ clave: string; valor: string }[]>("/configuracion").then((cfg) => {
+      const reabrir = cfg.find((c) => c.clave === "cotizacion_permite_reabrir");
+      if (reabrir) setPermiteReabrir(reabrir.valor === "true");
+      const dias = cfg.find((c) => c.clave === "dias_validez_cotizacion");
+      const n = dias ? parseInt(dias.valor, 10) : NaN;
+      // Solo en cotización nueva y si el usuario no tocó la vigencia a mano.
+      if (isNueva && !isNaN(n) && n > 0) {
+        setVigencia((v) => (vigenciaManual ? v : sumarDias(fecha, n)));
+        setDiasValidez(n);
+      }
+    }).catch(() => {});
 
     if (!isNueva) cargarCotizacion();
     else cargarTrm();
@@ -545,6 +600,7 @@ export default function CotizacionForm({ id }: { id: string }) {
     setClienteId(data.cliente_id);
     setFecha(data.fecha);
     setVigencia(data.fecha_vigencia);
+    setVigenciaManual(true);   // la guardada manda, no la recalcules al tocar la fecha
     setTipoOp(data.tipo_operacion);
     setOrigen(data.origen);
     setDestino(data.destino);
@@ -585,17 +641,37 @@ export default function CotizacionForm({ id }: { id: string }) {
   // Margen en tiempo real
   const vm   = parseFloat(valorMercancia) || 0;
   const trmN = parseFloat(trm) || 1;
-  let totalVentaCOP = 0, totalCostoCOP = 0;
+  let totalVentaCOP = 0, totalCostoCOP = 0, totalOpcionalCOP = 0;
   Object.values(lineas).flat().forEach((l) => {
-    if (l.valor_tercero) return;   // los valores para terceros no son ingreso propio: no cuentan en el margen
     const factor = l.moneda === "USD" ? trmN : 1;
+    // Los opcionales pueden no ejecutarse: se cotizan aparte y no entran al total.
+    if (l.opcional) { totalOpcionalCOP += l.total_venta * factor; return; }
+    if (l.valor_tercero) return;   // los valores para terceros no son ingreso propio: no cuentan en el margen
     totalVentaCOP += l.total_venta * factor;
     totalCostoCOP += l.total_costo * factor;
   });
   const margenCOP = totalVentaCOP - totalCostoCOP;
   const margenPct = totalVentaCOP > 0 ? (margenCOP / totalVentaCOP) * 100 : 0;
+  // Los totales se muestran en las dos monedas; la TRM de la cotización es el puente.
+  const aUSD = (cop: number) => (trmN > 0 ? cop / trmN : 0);
+
+  // Sin cabecera completa no se puede crear la cotización en BD, así que tampoco
+  // tiene sentido capturar líneas: el peso y la TRM alimentan el cálculo.
+  const faltantesCabecera = [
+    !clienteId && "cliente",
+    !fecha && "fecha",
+    !vigencia && "vigencia",
+    !origen.trim() && "origen",
+    !destino.trim() && "destino",
+  ].filter(Boolean) as string[];
+  const cabeceraLista = faltantesCabecera.length === 0;
 
   function agregarLinea(seccion: string) {
+    if (!cabeceraLista) {
+      setError(`Completa los datos de la cotización antes de agregar conceptos: falta ${faltantesCabecera.join(", ")}.`);
+      return;
+    }
+    setError("");
     setLineaModal({ seccion, linea: null, idx: null });
   }
 
@@ -635,9 +711,11 @@ export default function CotizacionForm({ id }: { id: string }) {
       costo_unitario: l.costo_unitario,
       base: l.base,
       minimo: l.minimo,
+      minimo_costo: l.minimo_costo,
       moneda: l.moneda,
       proveedor_id: l.proveedor_id ?? null,
       valor_tercero: l.valor_tercero ?? false,
+      opcional: l.opcional ?? false,
       condiciones_costo: l.condiciones_costo || null,
       notas: l.notas || null,
     };
@@ -847,12 +925,14 @@ export default function CotizacionForm({ id }: { id: string }) {
                   <>
                     <div onClick={() => setMenuEnviada(false)} className="fixed inset-0 z-40" />
                     <div className="absolute right-0 top-[115%] z-40 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[150px] overflow-hidden">
-                      <button onClick={() => { setMenuEnviada(false); cambiarEstado("reabrir"); }}
-                        className="block w-full text-left px-3 py-2 text-[12px] text-blue-600 hover:bg-gray-50">
-                        Reabrir
-                      </button>
+                      {permiteReabrir && (
+                        <button onClick={() => { setMenuEnviada(false); cambiarEstado("reabrir"); }}
+                          className="block w-full text-left px-3 py-2 text-[12px] text-blue-600 hover:bg-gray-50">
+                          Reabrir
+                        </button>
+                      )}
                       <button onClick={() => { setMenuEnviada(false); cambiarEstado("rechazar"); }}
-                        className="block w-full text-left px-3 py-2 text-[12px] text-red-600 hover:bg-gray-50 border-t border-gray-100">
+                        className={`block w-full text-left px-3 py-2 text-[12px] text-red-600 hover:bg-gray-50 ${permiteReabrir ? "border-t border-gray-100" : ""}`}>
                         Rechazar
                       </button>
                     </div>
@@ -861,7 +941,7 @@ export default function CotizacionForm({ id }: { id: string }) {
               </div>
             </>
           )}
-          {!isNueva && estado === "RECHAZADA" && cotizacionId && (
+          {!isNueva && estado === "RECHAZADA" && cotizacionId && permiteReabrir && (
             <button onClick={() => cambiarEstado("reabrir")} disabled={saving}
               className="px-4 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-700 text-[12px] font-medium rounded-lg">
               Reabrir
@@ -884,8 +964,9 @@ export default function CotizacionForm({ id }: { id: string }) {
       {/* ── Dos columnas ────────────────────────────────────────────────── */}
       <div className="flex gap-4 flex-1 overflow-hidden min-h-0">
 
-        {/* ── Columna izquierda: encabezado + margen (redimensionable) ── */}
-        <div className="shrink-0 overflow-y-auto flex flex-col gap-3 pb-4 relative"
+        {/* ── Columna izquierda: encabezado + totales (redimensionable) ── */}
+        {/* El encabezado scrollea; los totales quedan fijos abajo, siempre a la vista. */}
+        <div className="shrink-0 flex flex-col gap-3 pb-4 relative min-h-0"
           style={{ width: panelW }}>
           {/* Drag handle */}
           <div
@@ -895,6 +976,8 @@ export default function CotizacionForm({ id }: { id: string }) {
             <div className="h-12 w-1 rounded-full bg-gray-200 group-hover:bg-blue-400 transition-colors" />
           </div>
 
+          {/* Zona con scroll */}
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1.5">
           {/* Encabezado */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-2.5">
             <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Encabezado</p>
@@ -913,12 +996,17 @@ export default function CotizacionForm({ id }: { id: string }) {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelCls}>Fecha *</label>
-                <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
+                <input type="date" value={fecha}
+                  onChange={(e) => {
+                    setFecha(e.target.value);
+                    if (!vigenciaManual) setVigencia(sumarDias(e.target.value, diasValidez));
+                  }}
                   disabled={!editable && !isNueva} className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Vigencia *</label>
-                <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)}
+                <input type="date" value={vigencia}
+                  onChange={(e) => { setVigencia(e.target.value); setVigenciaManual(true); }}
                   disabled={!editable && !isNueva} className={inputCls} />
               </div>
             </div>
@@ -1021,38 +1109,64 @@ export default function CotizacionForm({ id }: { id: string }) {
 
             <div>
               <label className={labelCls}>Notas / condiciones</label>
-              <textarea rows={2} value={notas} onChange={(e) => setNotas(e.target.value)}
-                disabled={!editable && !isNueva} className={inputCls + " resize-none"}
+              <textarea rows={6} value={notas} onChange={(e) => setNotas(e.target.value)}
+                disabled={!editable && !isNueva} className={inputCls + " resize-y min-h-[80px]"}
                 placeholder="No incluye IVA · Sujeto a disponibilidad" />
             </div>
           </div>
+          </div>
 
-          {/* Margen */}
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-3">Margen</p>
+          {/* Totales y margen — fijos, en las dos monedas */}
+          <div className="shrink-0 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+            <div className="flex items-baseline justify-between mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Totales</p>
+              <span className="text-[10px] text-gray-400">TRM {fmt(trmN, 2)}</span>
+            </div>
             <div className="space-y-2">
+              {/* Encabezado de las dos columnas de moneda */}
+              <div className="flex items-baseline gap-2 pb-1 border-b border-gray-100">
+                <span className="flex-1" />
+                <span className="w-28 text-right text-[10px] font-bold uppercase tracking-wider text-gray-400">COP</span>
+                <span className="w-24 text-right text-[10px] font-bold uppercase tracking-wider text-gray-400">USD</span>
+              </div>
               {[
-                { label: "Total venta", val: `COP ${fmt(totalVentaCOP, 0)}`, color: "text-blue-700" },
-                { label: "Total costo", val: `COP ${fmt(totalCostoCOP, 0)}`, color: "text-gray-600" },
-                { label: "Margen", val: `COP ${fmt(margenCOP, 0)}`, color: margenCOP >= 0 ? "text-green-700" : "text-red-600" },
-              ].map(({ label, val, color }) => (
-                <div key={label} className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-500">{label}</span>
-                  <span className={`text-[12px] font-semibold ${color}`}>{val}</span>
+                { label: "Total venta", cop: totalVentaCOP, color: "text-blue-700" },
+                { label: "Total costo", cop: totalCostoCOP, color: "text-gray-600" },
+                { label: "Margen", cop: margenCOP, color: margenCOP >= 0 ? "text-green-700" : "text-red-600" },
+              ].map(({ label, cop, color }) => (
+                <div key={label} className="flex items-baseline gap-2">
+                  <span className="flex-1 text-[13px] text-gray-500 truncate">{label}</span>
+                  <span className={`w-28 text-right text-[15px] font-mono font-semibold ${color}`}>{fmt(cop, 0)}</span>
+                  <span className="w-24 text-right text-[13px] font-mono text-gray-400">{fmt(aUSD(cop), 2)}</span>
                 </div>
               ))}
+              {totalOpcionalCOP > 0 && (
+                <div className="flex items-baseline gap-2 pt-2 border-t border-gray-100">
+                  <span className="flex-1 text-[13px] text-amber-600 truncate">Opcionales</span>
+                  <span className="w-28 text-right text-[15px] font-mono font-semibold text-amber-600">{fmt(totalOpcionalCOP, 0)}</span>
+                  <span className="w-24 text-right text-[13px] font-mono text-amber-500/70">{fmt(aUSD(totalOpcionalCOP), 2)}</span>
+                </div>
+              )}
               <div className="border-t border-gray-100 pt-2 flex items-center justify-between">
-                <span className="text-[11px] text-gray-500">Margen %</span>
-                <span className={`text-[16px] font-bold ${margenPct >= 0 ? "text-green-700" : "text-red-600"}`}>
+                <span className="text-[13px] text-gray-500">Margen %</span>
+                <span className={`text-[20px] font-bold ${margenPct >= 0 ? "text-green-700" : "text-red-600"}`}>
                   {margenPct.toFixed(1)}%
                 </span>
               </div>
+              {totalOpcionalCOP > 0 && (
+                <p className="text-[11px] text-gray-400 leading-snug">Los opcionales no suman al total. Se facturan solo si operación los confirma.</p>
+              )}
             </div>
           </div>
         </div>
 
         {/* ── Columna derecha: secciones ───────────────────────────────── */}
         <div className="flex-1 overflow-y-auto pb-4">
+          {editable && !cabeceraLista && (
+            <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-700">
+              Completa los datos de la cotización para agregar conceptos. Falta: <strong>{faltantesCabecera.join(", ")}</strong>.
+            </div>
+          )}
           <div className="flex items-center justify-end mb-2">
             {(() => {
               const todasAbiertas = SECCIONES.every((s) => seccionesAbiertas[s.key]);
@@ -1096,7 +1210,9 @@ export default function CotizacionForm({ id }: { id: string }) {
                     )}
                     {editable && (
                       <button type="button" onClick={(e) => { e.stopPropagation(); agregarLinea(key); }}
-                        className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium shrink-0 transition-colors">
+                        disabled={!cabeceraLista}
+                        title={cabeceraLista ? undefined : `Falta ${faltantesCabecera.join(", ")}`}
+                        className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium shrink-0 transition-colors disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:text-gray-300">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                         </svg>
@@ -1136,10 +1252,13 @@ export default function CotizacionForm({ id }: { id: string }) {
                         className="flex items-center gap-3 px-4 py-2 border-t border-gray-50 hover:bg-blue-50/20 group transition-colors">
                         {/* Descripción */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12px] text-gray-800 truncate">
+                          <p className={`text-[12px] truncate ${l.opcional ? "text-gray-500 italic" : "text-gray-800"}`}>
                             {l.descripcion}
                             {l.valor_tercero && (
-                              <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Tercero</span>
+                              <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded not-italic">Tercero</span>
+                            )}
+                            {l.opcional && (
+                              <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded not-italic">Opcional</span>
                             )}
                           </p>
                           {l.condiciones_costo && (
@@ -1195,11 +1314,13 @@ export default function CotizacionForm({ id }: { id: string }) {
                   )}
 
                   {filas.length > 0 && (() => {
-                    const monedas   = [...new Set(filas.map((l) => l.moneda))];
+                    // Los opcionales no suman en el subtotal de la sección.
+                    const sumables  = filas.filter((l) => !l.opcional);
+                    const monedas   = [...new Set(sumables.map((l) => l.moneda))];
                     const monedaSec = monedas.length === 1 ? monedas[0] : "COP";
                     const factor    = (m: string) => m === "USD" && monedaSec === "COP" ? trmN : 1;
-                    const sVenta  = filas.reduce((a, l) => a + l.total_venta * factor(l.moneda), 0);
-                    const sCosto  = filas.reduce((a, l) => a + l.total_costo * factor(l.moneda), 0);
+                    const sVenta  = sumables.reduce((a, l) => a + l.total_venta * factor(l.moneda), 0);
+                    const sCosto  = sumables.reduce((a, l) => a + l.total_costo * factor(l.moneda), 0);
                     const sMargen = sVenta - sCosto;
                     const sPct    = sVenta > 0 ? (sMargen / sVenta) * 100 : 0;
                     return (

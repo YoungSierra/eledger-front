@@ -7,6 +7,7 @@ interface Linea {
   seccion: string; descripcion: string; tipo_calculo: string;
   valor_unitario: number; base: number; minimo: number | null;
   total_venta: number; total_costo: number; moneda: string;
+  opcional: boolean;
   condiciones_costo: string | null;
 }
 
@@ -62,7 +63,6 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
     if (!resolvedId) return;
     apiFetch<Cotizacion>(`/operaciones/cotizaciones/${resolvedId}`).then(async (data) => {
       setCot(data);
-      document.title = data.numero;
       const t = await apiFetch<Tercero>(`/terceros/${data.cliente_id}`);
       setCliente(t);
       if (data.aerolinea_id) {
@@ -71,6 +71,12 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
       }
     });
   }, [resolvedId]);
+
+  // El título es el nombre que propone el diálogo de impresión al guardar el PDF.
+  // Lleva la moneda porque la misma cotización se imprime en COP y en USD.
+  useEffect(() => {
+    if (cot) document.title = `${cot.numero}-${moneda}`;
+  }, [cot, moneda]);
 
   if (!cot || !cliente) {
     return <div style={{ padding: 40, color: "#999", fontSize: 13 }}>Cargando...</div>;
@@ -87,7 +93,12 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
   };
   const decMon = moneda === "USD" ? 2 : 0;
   let grandTotal = 0;
-  const seccionesConLineas = SECCIONES.filter(({ key }) => cot.lineas.some((l) => l.seccion === key));
+  // Los opcionales van en bloque aparte al final y fuera del total: pueden o no
+  // ejecutarse, y mezclarlos con lo cotizado en firme confunde al cliente.
+  const lineasFirmes    = cot.lineas.filter((l) => !l.opcional);
+  const lineasOpcionales = cot.lineas.filter((l) => l.opcional);
+  const seccionesConLineas = SECCIONES.filter(({ key }) => lineasFirmes.some((l) => l.seccion === key));
+  const totalOpcionales = lineasOpcionales.reduce((acc, l) => acc + conv(l.total_venta, l.moneda), 0);
 
   return (
     <>
@@ -185,7 +196,7 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
 
         {/* Secciones */}
         {seccionesConLineas.map(({ key, label }) => {
-          const filas = cot.lineas.filter((l) => l.seccion === key);
+          const filas = lineasFirmes.filter((l) => l.seccion === key);
           const subtotal = filas.reduce((acc, l) => acc + conv(l.total_venta, l.moneda), 0);
           grandTotal += subtotal;
           return (
@@ -220,6 +231,7 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
                         {l.minimo != null && (
                           <div style={{ color: "#94a3b8", fontSize: 9 }}>Mínimo: {moneda} {fmt(conv(l.minimo, l.moneda))}</div>
                         )}
+                        {/* El mínimo de costo es interno: no se imprime para el cliente. */}
                       </td>
                       <td style={{ padding: "5px 8px", textAlign: "center", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
                         {TIPO_LABEL[l.tipo_calculo] ?? l.tipo_calculo}
@@ -250,6 +262,62 @@ export default function ImprimirPage({ params }: { params: Promise<{ id: string 
             </div>
           );
         })}
+
+        {/* Servicios opcionales — fuera del total */}
+        {lineasOpcionales.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ background: "#f1f5f9", color: "#475569", padding: "5px 12px", borderRadius: "6px 6px 0 0", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, border: "1px solid #cbd5e1", borderBottom: "none" }}>
+              Servicios opcionales — no incluidos en el total
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, tableLayout: "fixed", border: "1px solid #cbd5e1" }}>
+              <colgroup>
+                <col style={{ width: "38%" }} />
+                <col style={{ width: "17%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "6%" }} />
+              </colgroup>
+              <tbody>
+                {lineasOpcionales.map((l, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: "5px 10px", borderBottom: "1px solid #f1f5f9", fontStyle: "italic", color: "#475569" }}>
+                      <div>{l.descripcion}</div>
+                      {l.minimo != null && (
+                        <div style={{ color: "#94a3b8", fontSize: 9, fontStyle: "normal" }}>Mínimo: {moneda} {fmt(conv(l.minimo, l.moneda))}</div>
+                      )}
+                    </td>
+                    <td style={{ padding: "5px 8px", textAlign: "center", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
+                      {TIPO_LABEL[l.tipo_calculo] ?? l.tipo_calculo}
+                    </td>
+                    <td style={{ padding: "5px 8px", textAlign: "right", color: "#475569", borderBottom: "1px solid #f1f5f9" }}>
+                      {l.tipo_calculo === "POR_KG" ? fmt(l.base, 2) : ""}
+                    </td>
+                    <td style={{ padding: "5px 10px", textAlign: "right", color: "#475569", borderBottom: "1px solid #f1f5f9" }}>
+                      {l.tipo_calculo === "PORCENTAJE" ? `${fmt(l.valor_unitario)}%` : fmt(conv(l.valor_unitario, l.moneda))}
+                    </td>
+                    <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 600, color: "#475569", borderBottom: "1px solid #f1f5f9" }}>
+                      {fmt(conv(l.total_venta, l.moneda))}
+                    </td>
+                    <td style={{ padding: "5px 8px", textAlign: "center", borderBottom: "1px solid #f1f5f9" }}>
+                      <span style={{ background: "#e2e8f0", color: "#475569", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>
+                        {moneda}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ background: "#f8fafc" }}>
+                  <td colSpan={4} style={{ padding: "5px 10px", fontWeight: 700, color: "#475569", fontSize: 10 }}>Suma de opcionales</td>
+                  <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 700, color: "#475569" }}>{moneda} {fmt(totalOpcionales, decMon)}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ fontSize: 9, color: "#64748b", marginTop: 4, fontStyle: "italic" }}>
+              Se cobran únicamente si el servicio se ejecuta.
+            </div>
+          </div>
+        )}
 
         {/* Total general */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8, marginBottom: 24 }}>

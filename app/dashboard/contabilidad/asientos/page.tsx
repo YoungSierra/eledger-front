@@ -62,6 +62,7 @@ interface FormHead {
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 const inpSm = "px-2 py-1 border border-gray-200 rounded text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full";
@@ -226,6 +227,8 @@ export default function AsientosPage() {
   const [publishing, setPublishing] = useState(false);
   const [error, setError]         = useState("");
   const [printId, setPrintId]     = useState<string | null>(null);
+  const fileComprobanteRef = useRef<HTMLInputElement>(null);
+  const [importInforme, setImportInforme] = useState<{ problemas: string[]; prev: { lineas: Record<string, unknown>[] } | null } | null>(null);
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
 
@@ -268,6 +271,59 @@ export default function AsientosPage() {
     setLineas([]); setError(""); setModo("crear");
   }
 
+  async function descargarPlantillaComprobante() {
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${BASE_URL}/asientos/plantilla-comprobante`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) { setError("No se pudo descargar la plantilla"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "plantilla_comprobante.xlsx"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function abrirDesdePreview(prev: { lineas: Record<string, unknown>[] }) {
+    const amId = tiposDoc.find((t) => t.tipo_documento_codigo === "AM")?.tipo_documento_id ?? "";
+    setHead({ tipo_documento_id: amId, fecha: hoy, descripcion: "Comprobante importado", moneda_id: monedaFuncId, trm: "" });
+    setLineas(prev.lineas.map((l) => ({
+      _key: keyLinea(),
+      cuenta_id: (l.cuenta_id as string) ?? "",
+      cuenta_display: (l.cuenta_display as string) ?? (l.cuenta_codigo as string) ?? "",
+      requiere_tercero: !!l.requiere_tercero, requiere_cc: !!l.requiere_cc,
+      debito: Number(l.debito) ? String(l.debito) : "",
+      credito: Number(l.credito) ? String(l.credito) : "",
+      tercero_id: (l.tercero_id as string) ?? "", tercero_display: (l.tercero_display as string) ?? "",
+      cc_id: (l.centro_costo_id as string) ?? "",
+      descripcion: (l.descripcion as string) ?? "",
+    })));
+    setError(""); setModo("crear");
+  }
+
+  async function importarComprobante(file: File) {
+    setError(""); setImportInforme(null);
+    const fd = new FormData();
+    fd.append("archivo", file);
+    const token = localStorage.getItem("access_token");
+    try {
+      const res = await fetch(`${BASE_URL}/asientos/importar-comprobante`, {
+        method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd,
+      });
+      if (!res.ok) { const j = await res.json().catch(() => null); throw new Error(j?.detail ?? "Error al importar"); }
+      const prev = await res.json();
+      const problemas: string[] = [
+        ...(prev.avisos ?? []),
+        ...prev.lineas.flatMap((l: { avisos?: string[] }) => l.avisos ?? []),
+      ];
+      // Validación antes de abrir: si hay cuentas/terceros faltantes u otros problemas,
+      // se informa y NO se abre el asiento hasta que el usuario decida.
+      if (problemas.length > 0) {
+        setImportInforme({ problemas, prev });
+        return;
+      }
+      abrirDesdePreview(prev);
+    } catch (e) { setImportInforme({ problemas: [e instanceof Error ? e.message : "Error al importar"], prev: null }); }
+  }
+
   async function abrirEditar(item: AsientoListItem) {
     const a = await apiFetch<Asiento>(`/asientos/${item.id}`).catch(() => null);
     if (!a) return;
@@ -296,7 +352,7 @@ export default function AsientosPage() {
     setActivo(a); setError(""); setModo("ver");
   }
 
-  function cerrar() { setModo(null); setActivo(null); setError(""); }
+  function cerrar() { setModo(null); setActivo(null); setError(""); setConfirmarDescarte(false); }
 
   // ── Líneas ─────────────────────────────────────────────────────────────────
 
@@ -316,6 +372,17 @@ export default function AsientosPage() {
   const cuadra = totalD > 0 && diff < 0.0001;
 
   // ── Guardar ────────────────────────────────────────────────────────────────
+
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  async function descartar() {
+    if (!activo) return;
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/asientos/${activo.id}`, { method: "DELETE" });
+      cerrar(); setConfirmarDescarte(false); cargar(1); setPagina(1);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al descartar"); }
+    finally { setSaving(false); }
+  }
 
   async function guardar(publicarAlGuardar = false) {
     if (!head.tipo_documento_id) { setError("Selecciona el tipo de documento"); return; }
@@ -475,11 +542,22 @@ export default function AsientosPage() {
           <h1 className="text-[15px] font-semibold text-gray-800">{title}</h1>
           <p className="text-[12px] text-gray-400 mt-0.5">Libro mayor · todos los módulos</p>
         </div>
-        <button onClick={abrirCrear}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nuevo asiento
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={descargarPlantillaComprobante}
+            className="text-[11px] text-gray-500 hover:text-gray-700 font-medium px-2 py-1.5">Descargar plantilla</button>
+          <button onClick={() => fileComprobanteRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-50 text-[12px] font-medium rounded-lg transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Importar comprobante
+          </button>
+          <input ref={fileComprobanteRef} type="file" accept=".xlsx" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) importarComprobante(f); e.target.value = ""; }} />
+          <button onClick={abrirCrear}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nuevo asiento
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -489,7 +567,7 @@ export default function AsientosPage() {
           <select value={fEstado} onChange={(e) => setFEstado(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="">Todos</option>
             <option value="borrador">Borrador</option>
-            <option value="publicado">Publicado</option>
+            <option value="publicado">Contabilizado</option>
           </select>
         </div>
         <div>
@@ -578,7 +656,7 @@ export default function AsientosPage() {
                   <td className="px-3 py-2.5 text-right font-mono text-gray-600 whitespace-nowrap">{fmt(a.total_credito)}</td>
                   <td className="px-3 py-2.5">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ESTADO_BADGE[a.estado]}`}>
-                      {a.estado === "borrador" ? "Borrador" : "Publicado"}
+                      {a.estado === "borrador" ? "Borrador" : "Contabilizado"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
@@ -621,7 +699,7 @@ export default function AsientosPage() {
       {modo && (
         <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ width: "min(900px, 95vw)", height: "min(88vh, 820px)" }}>
+            style={{ resize: "both", width: "min(1040px, 96vw)", height: "min(88vh, 820px)", minWidth: "820px", minHeight: "30rem", maxWidth: "98vw", maxHeight: "96vh" }}>
 
             {/* Header modal */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
@@ -852,14 +930,27 @@ export default function AsientosPage() {
                 </>
               ) : (
                 <>
+                  {modo === "editar" && (
+                    confirmarDescarte ? (
+                      <button onClick={descartar} disabled={saving}
+                        className="px-3 py-2 text-[12px] font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors">
+                        {saving ? "Descartando…" : "Confirmar descarte"}
+                      </button>
+                    ) : (
+                      <button onClick={() => setConfirmarDescarte(true)}
+                        className="px-3 py-2 text-[12px] font-medium border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors">
+                        Descartar
+                      </button>
+                    )
+                  )}
                   <button onClick={cerrar} className="px-5 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white transition-colors">Cancelar</button>
                   <button onClick={() => guardar(false)} disabled={saving}
                     className="flex-1 py-2 border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 text-[12px] font-medium rounded-lg disabled:opacity-50 transition-colors">
                     {saving && !publishing ? "Guardando..." : "Guardar borrador"}
                   </button>
                   <button onClick={() => guardar(true)} disabled={saving || !cuadra}
-                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-[12px] font-medium rounded-lg transition-colors">
-                    {publishing ? "Publicando..." : "Publicar"}
+                    className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-[12px] font-medium rounded-lg transition-colors">
+                    {publishing ? "Contabilizando..." : "Contabilizar"}
                   </button>
                 </>
               )}
@@ -901,7 +992,7 @@ export default function AsientosPage() {
             <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <p className="text-[13px] font-semibold text-gray-800 mb-1">Asiento publicado</p>
+            <p className="text-[13px] font-semibold text-gray-800 mb-1">Asiento contabilizado</p>
             <p className="text-[12px] text-gray-500 mb-5">¿Deseas imprimir el asiento?</p>
             <div className="flex gap-2 justify-center">
               <button onClick={() => setPrintId(null)}
@@ -913,6 +1004,44 @@ export default function AsientosPage() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Resultado de la validación del comprobante importado ── */}
+      {importInforme && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+              <div>
+                <h3 className="text-[14px] font-bold text-gray-800">Revisión del comprobante</h3>
+                <p className="text-[11px] text-gray-400">Se encontraron {importInforme.problemas.length} observación(es). Corrige el archivo y vuelve a importar.</p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <ul className="space-y-1.5">
+                {importInforme.problemas.map((p, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[12px] text-gray-700">
+                    <span className="text-amber-500 mt-0.5">•</span><span>{p}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-3.5 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setImportInforme(null)}
+                className="px-4 py-1.5 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                Cerrar
+              </button>
+              {importInforme.prev && (
+                <button onClick={() => { abrirDesdePreview(importInforme.prev!); setImportInforme(null); }}
+                  className="px-4 py-1.5 text-[12px] font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-white">
+                  Abrir asiento igual
+                </button>
+              )}
             </div>
           </div>
         </div>

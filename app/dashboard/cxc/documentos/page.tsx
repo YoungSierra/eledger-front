@@ -357,7 +357,7 @@ export function DocumentosCxcView({ tipoFijo, titulo }: { tipoFijo?: string; tit
     } else {
       setNotasRel([]);
     }
-    if (doc.estado === "contabilizado" && doc.saldo > 0) {
+    if (doc.estado === "contabilizado" && parseFloat(doc.saldo) > 0) {
       const res = await apiFetch<ListResponse>(`/cxc?tipo=FACTURA&estado=contabilizado&solo_pendientes=true&por_pagina=100`).catch(() => null);
       setFacturasPendientes(res?.items.filter((f) => f.id !== doc.id && f.tercero_nit === doc.tercero_nit) ?? []);
     }

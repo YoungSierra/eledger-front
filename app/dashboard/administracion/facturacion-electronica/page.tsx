@@ -12,9 +12,52 @@ interface Config {
   activo: boolean;
   account_id: string | null;
   base_url: string | null;
+  test_prefix: string | null;
+  test_resolution_number: string | null;
   auth_token_mascara: string | null;
   tiene_token: boolean;
+  client_id: string | null;
+  username: string | null;
+  numbering_range_id: string | null;
+  client_secret_mascara: string | null;
+  password_mascara: string | null;
+  tiene_client_secret: boolean;
+  tiene_password: boolean;
   modificado_en: string | null;
+}
+
+/** Campo de secreto: se guarda cifrado y solo se muestra enmascarado. */
+function Secreto({ label, placeholder, valor, setValor, mascara, tiene, ver, setVer }: {
+  label: string; placeholder: string;
+  valor: string | null; setValor: (v: string | null) => void;
+  mascara: string | null; tiene: boolean; ver: boolean; setVer: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <p className={ayudaCls}>
+        Se guarda cifrado y no se puede volver a leer.
+        {tiene && !ver && <> Actual: <span className="font-mono text-gray-600">{mascara}</span></>}
+      </p>
+      {tiene && !ver ? (
+        <button type="button" onClick={() => { setVer(true); setValor(""); }}
+          className="px-3 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-600 hover:bg-gray-50">
+          Reemplazar
+        </button>
+      ) : (
+        <div className="flex gap-2">
+          <input type="password" value={valor ?? ""} onChange={(e) => setValor(e.target.value)}
+            className={inputCls} placeholder={placeholder} autoComplete="new-password" />
+          {tiene && (
+            <button type="button" onClick={() => { setVer(false); setValor(null); }}
+              className="px-3 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-500 hover:bg-gray-50 shrink-0">
+              Cancelar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
@@ -44,11 +87,25 @@ export default function FacturacionElectronicaPage() {
   const [activo, setActivo] = useState(false);
   const [accountId, setAccountId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [testPrefix, setTestPrefix] = useState("");
+  const [testResolution, setTestResolution] = useState("");
   // null = no se tocó, se conserva el guardado. String = reemplazar.
   const [token, setToken] = useState<string | null>(null);
   const [mascara, setMascara] = useState<string | null>(null);
   const [tieneToken, setTieneToken] = useState(false);
   const [verToken, setVerToken] = useState(false);
+  // Factus (OAuth2)
+  const [clientId, setClientId] = useState("");
+  const [username, setUsername] = useState("");
+  const [numberingRange, setNumberingRange] = useState("");
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(null);
+  const [secretMascara, setSecretMascara] = useState<string | null>(null);
+  const [passwordMascara, setPasswordMascara] = useState<string | null>(null);
+  const [tieneSecret, setTieneSecret] = useState(false);
+  const [tienePassword, setTienePassword] = useState(false);
+  const [verSecret, setVerSecret] = useState(false);
+  const [verPassword, setVerPassword] = useState(false);
 
   useEffect(() => { cargar(); }, []);
 
@@ -63,8 +120,17 @@ export default function FacturacionElectronicaPage() {
         setActivo(d.activo);
         setAccountId(d.account_id ?? "");
         setBaseUrl(d.base_url ?? "");
+        setTestPrefix(d.test_prefix ?? "");
+        setTestResolution(d.test_resolution_number ?? "");
         setMascara(d.auth_token_mascara);
         setTieneToken(d.tiene_token);
+        setClientId(d.client_id ?? "");
+        setUsername(d.username ?? "");
+        setNumberingRange(d.numbering_range_id ?? "");
+        setSecretMascara(d.client_secret_mascara);
+        setPasswordMascara(d.password_mascara);
+        setTieneSecret(d.tiene_client_secret);
+        setTienePassword(d.tiene_password);
       }
     } catch {
       // apiFetch redirige a /login si la sesión expiró
@@ -80,13 +146,26 @@ export default function FacturacionElectronicaPage() {
           proveedor, nombre_pth: nombrePth || null, ambiente, activo,
           account_id: accountId || null,
           base_url: baseUrl || null,
+          test_prefix: testPrefix || null,
+          test_resolution_number: testResolution || null,
           ...(token !== null ? { auth_token: token } : {}),
+          client_id: clientId || null,
+          username: username || null,
+          numbering_range_id: numberingRange || null,
+          ...(clientSecret !== null ? { client_secret: clientSecret } : {}),
+          ...(password !== null ? { password } : {}),
         }),
       });
       setMascara(d.auth_token_mascara);
       setTieneToken(d.tiene_token);
       setToken(null);
       setVerToken(false);
+      setSecretMascara(d.client_secret_mascara);
+      setPasswordMascara(d.password_mascara);
+      setTieneSecret(d.tiene_client_secret);
+      setTienePassword(d.tiene_password);
+      setClientSecret(null); setPassword(null);
+      setVerSecret(false); setVerPassword(false);
       setOk("Configuración guardada.");
       setTimeout(() => setOk(""), 3000);
     } catch (e) {
@@ -105,6 +184,7 @@ export default function FacturacionElectronicaPage() {
   }
 
   const esDataico = proveedor === "DATAICO";
+  const esFactus = proveedor === "PTH_FACTUS";
 
   return (
     <div className="h-full flex flex-col max-w-2xl">
@@ -193,14 +273,88 @@ export default function FacturacionElectronicaPage() {
                     <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className={inputCls}
                       placeholder="https://api.dataico.com/direct/dataico_api/v2" />
                   </div>
+
+                  {ambiente === "PRUEBAS" && (
+                    <div className="border-t border-gray-100 pt-3 mt-1">
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-blue-600 mb-1">Numeración de pruebas (SETP)</p>
+                      <p className={ayudaCls}>
+                        Solo para ambiente PRUEBAS. Es la numeración de habilitación registrada en tu cuenta Dataico
+                        (Ventas → Facturas → Asociar Numeración). En producción se usa la resolución real del sistema.
+                      </p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className={labelCls}>Prefijo</label>
+                          <input value={testPrefix} onChange={(e) => setTestPrefix(e.target.value)} className={inputCls} placeholder="SETP" />
+                        </div>
+                        <div className="col-span-2">
+                          <label className={labelCls}>N.º de resolución</label>
+                          <input value={testResolution} onChange={(e) => setTestResolution(e.target.value)} className={inputCls} placeholder="18760000001" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </>
           )}
 
-          {!esDataico && (
+          {esFactus && (
+            <div className="border-t border-gray-100 pt-5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700 mb-3">Credenciales Factus</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Client ID</label>
+                    <p className={ayudaCls}>Lo entrega Factus al vincularte.</p>
+                    <input value={clientId} onChange={(e) => setClientId(e.target.value)} className={inputCls}
+                      placeholder="00000000-0000-0000-0000-000000000000" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Usuario</label>
+                    <p className={ayudaCls}>Correo de la cuenta.</p>
+                    <input value={username} onChange={(e) => setUsername(e.target.value)} className={inputCls}
+                      placeholder="correo@empresa.com" autoComplete="off" />
+                  </div>
+                </div>
+
+                <Secreto label="Client Secret" placeholder="Pegar el Client Secret de Factus"
+                  valor={clientSecret} setValor={setClientSecret} mascara={secretMascara}
+                  tiene={tieneSecret} ver={verSecret} setVer={setVerSecret} />
+
+                <Secreto label="Contraseña" placeholder="Contraseña de la cuenta Factus"
+                  valor={password} setValor={setPassword} mascara={passwordMascara}
+                  tiene={tienePassword} ver={verPassword} setVer={setVerPassword} />
+
+                <div>
+                  <label className={labelCls}>Rango de numeración</label>
+                  <p className={ayudaCls}>
+                    ID del rango ya asociado en tu cuenta Factus — él asigna el consecutivo.
+                    Usa <strong>Probar conexión</strong> para ver los disponibles.
+                  </p>
+                  <input value={numberingRange} onChange={(e) => setNumberingRange(e.target.value)} className={inputCls} placeholder="389" />
+                </div>
+
+                <div>
+                  <label className={labelCls}>URL base <span className="font-normal normal-case tracking-normal text-gray-400">(opcional)</span></label>
+                  <p className={ayudaCls}>
+                    Vacío = según el ambiente: <code className="text-gray-500">api-sandbox.factus.com.co</code> en pruebas,
+                    <code className="text-gray-500"> api.factus.com.co</code> en producción.
+                  </p>
+                  <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className={inputCls}
+                    placeholder="https://api-sandbox.factus.com.co" />
+                </div>
+
+                <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  El municipio del emisor sale de <strong>Empresa → Contacto y ubicación</strong>, y el del cliente
+                  de su ficha en Terceros. No se configura aquí.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!esDataico && !esFactus && (
             <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Solo Dataico tiene integración implementada. Los demás proveedores están en el diseño pero aún no se pueden configurar.
+              Solo Dataico y Factus tienen integración implementada. Los demás proveedores están en el diseño pero aún no se pueden configurar.
             </p>
           )}
 

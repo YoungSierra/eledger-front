@@ -22,6 +22,8 @@ interface CxcParametro {
   cuenta_descuentos_display: string | null;
   cuenta_aprovechamientos_id: string | null;
   cuenta_aprovechamientos_display: string | null;
+  cuenta_devolucion_venta_id: string | null;
+  cuenta_devolucion_venta_display: string | null;
 }
 
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1";
@@ -98,6 +100,8 @@ export default function ParametrosCxcPage() {
   const [descDisp, setDescDisp]         = useState<string | null>(null);
   const [aprovId, setAprovId]           = useState<string | null>(null);
   const [aprovDisp, setAprovDisp]       = useState<string | null>(null);
+  const [devId, setDevId]               = useState<string | null>(null);
+  const [devDisp, setDevDisp]           = useState<string | null>(null);
 
   useEffect(() => { cargar(); }, []);
 
@@ -113,6 +117,7 @@ export default function ParametrosCxcPage() {
       setAntId(d.cuenta_anticipos_id); setAntDisp(d.cuenta_anticipos_display);
       setDescId(d.cuenta_descuentos_id); setDescDisp(d.cuenta_descuentos_display);
       setAprovId(d.cuenta_aprovechamientos_id); setAprovDisp(d.cuenta_aprovechamientos_display);
+      setDevId(d.cuenta_devolucion_venta_id); setDevDisp(d.cuenta_devolucion_venta_display);
     } finally { setLoading(false); }
   }
 
@@ -129,6 +134,7 @@ export default function ParametrosCxcPage() {
           cuenta_anticipos_id: antId,
           cuenta_descuentos_id: descId,
           cuenta_aprovechamientos_id: aprovId,
+          cuenta_devolucion_venta_id: devId,
         }),
       });
       setOk(true);
@@ -205,6 +211,13 @@ export default function ParametrosCxcPage() {
             ayuda="Ingreso cuando el cliente paga de más (sobrante del recibo). Ej: 425035 — Aprovechamientos"
             valor={aprovId} display={aprovDisp}
             onChange={(id, d) => { setAprovId(id); setAprovDisp(d); }}
+          />
+
+          <CuentaSearch
+            label="Cuenta devolución en ventas (respaldo)"
+            ayuda="Débito al registrar una devolución sobre un concepto que no tiene cuenta propia. Ej: 4175xx — Devoluciones en ventas"
+            valor={devId} display={devDisp}
+            onChange={(id, d) => { setDevId(id); setDevDisp(d); }}
           />
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

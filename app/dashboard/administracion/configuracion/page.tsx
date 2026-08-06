@@ -18,7 +18,7 @@ const GRUPOS: { label: string; claves: string[] }[] = [
   { label: "Contabilidad", claves: ["permitir_correccion_asientos", "periodo_cierre_automatico"] },
   { label: "CxC y CxP",    claves: ["dias_alerta_vencimiento_cxc", "dias_alerta_vencimiento_cxp"] },
   { label: "Inventario",   claves: ["metodo_valoracion_inventario", "permite_stock_negativo"] },
-  { label: "Facturación",  claves: ["dias_validez_cotizacion", "factura_requiere_cotizacion"] },
+  { label: "Comercial",    claves: ["dias_validez_cotizacion", "factura_requiere_cotizacion", "cotizacion_permite_reabrir"] },
 ];
 
 const OPCIONES_STRING: Record<string, string[]> = {
