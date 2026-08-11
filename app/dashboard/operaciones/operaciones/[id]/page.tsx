@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
+import MaritimoTab from "@/components/MaritimoTab";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -240,7 +241,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [terceroNombres, setTerceroNombres] = useState<Record<string, string>>({});
   const [aerolineas, setAerolineas] = useState<Aerolinea[]>([]);
   const [aeropuertos, setAeropuertos] = useState<Aeropuerto[]>([]);
-  const [tab, setTab] = useState<"datos" | "confirmacion" | "hawb" | "mawb" | "manifiesto" | "bitacora" | "documentos">("datos");
+  const [tab, setTab] = useState<"datos" | "confirmacion" | "hawb" | "mawb" | "maritimo" | "manifiesto" | "bitacora" | "documentos">("datos");
+  // Conteo del tab marítimo: se pide aparte para no cargar toda la carpeta.
+  const [maritimoN, setMaritimoN] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
@@ -380,6 +383,14 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   }, [resolvedId, cargarCarpeta]);
 
   useEffect(() => { cargarConfirmacion(); }, [cargarConfirmacion]);
+
+  useEffect(() => {
+    if (!resolvedId) return;
+    apiFetch<{ mbls: unknown[]; hbls: unknown[]; contenedores: unknown[] }>(
+      `/operaciones/operaciones/${resolvedId}/maritimo`)
+      .then((m) => setMaritimoN(m.mbls.length + m.hbls.length + m.contenedores.length))
+      .catch(() => setMaritimoN(null));
+  }, [resolvedId, tab]);
 
   // El aviso de guardado se retira solo; el de error se queda hasta corregirlo.
   useEffect(() => {
@@ -700,6 +711,8 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     { key: "confirmacion", label: "Confirmación", count: conf ? sinConfirmar : null },
     { key: "mawb",        label: "MAWB",        count: mawbs.length },
     { key: "hawb",        label: "HAWB",        count: hawbs.length },
+    // Marítimo convive con lo aéreo: una operación puede ser multimodal.
+    { key: "maritimo",    label: "Marítimo",    count: maritimoN },
     { key: "manifiesto",  label: "Manifiesto",  count: manifiestos.length },
     { key: "bitacora",    label: "Bitácora",    count: eventos.length },
     { key: "documentos",  label: "Documentos",  count: documentos.length },
@@ -1415,6 +1428,15 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
             );
           })}
         </div>
+      )}
+
+      {/* ── Tab: Marítimo ─────────────────────────────────────────────── */}
+      {tab === "maritimo" && (
+        <MaritimoTab
+          operacionId={operacion.id}
+          bloqueada={opBloqueada}
+          cotizaciones={cotizaciones.map((c) => ({ id: c.id, numero: c.numero }))}
+        />
       )}
 
       {/* ── Tab: HAWB ─────────────────────────────────────────────────── */}

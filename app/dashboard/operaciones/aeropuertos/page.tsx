@@ -14,6 +14,13 @@ interface Aeropuerto {
 
 type Modalidad = "AEREA" | "MARITIMA" | "TERRESTRE";
 
+// El catálogo es multimodal: un registro MARITIMA es un puerto, no un aeropuerto.
+const MODAL_COLOR: Record<Modalidad, string> = {
+  AEREA:     "bg-sky-50 text-sky-700",
+  MARITIMA:  "bg-blue-50 text-blue-700",
+  TERRESTRE: "bg-amber-50 text-amber-700",
+};
+
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 const inpDis = inp + " bg-gray-50 text-gray-400 cursor-not-allowed";
@@ -34,7 +41,7 @@ export default function AeropuertosPage() {
   const [timer, setTimer]             = useState<ReturnType<typeof setTimeout> | null>(null);
   const [pagina, setPagina]           = useState(1);
   const [porPagina]                   = useState(25);
-  const { orden, alternar } = useOrden<"iata" | "nombre" | "ciudad" | "pais" | "estado">("nombre", "asc", () => setPagina(1));
+  const { orden, alternar } = useOrden<"iata" | "nombre" | "ciudad" | "pais" | "modalidad" | "estado">("nombre", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
 
@@ -86,6 +93,7 @@ export default function AeropuertosPage() {
     nombre: (a) => a.nombre,
     ciudad: (a) => a.ciudad,
     pais:   (a) => a.pais,
+    modalidad: (a) => a.modalidad,
     estado: (a) => (a.activo ? 1 : 0),
   });
 
@@ -131,6 +139,7 @@ export default function AeropuertosPage() {
                 <Th campo="nombre" orden={orden} alternar={alternar}>Nombre</Th>
                 <Th campo="ciudad" orden={orden} alternar={alternar}>Ciudad</Th>
                 <Th campo="pais"   orden={orden} alternar={alternar}>País</Th>
+                <Th campo="modalidad" orden={orden} alternar={alternar} className="w-28">Modalidad</Th>
                 <Th campo="estado" orden={orden} alternar={alternar}>Estado</Th>
                 <th className="px-4 py-2.5 w-20"></th>
               </tr>
@@ -148,6 +157,9 @@ export default function AeropuertosPage() {
                   <td className="px-4 py-3 text-[12px] text-gray-800">{a.nombre}</td>
                   <td className="px-4 py-3 text-[12px] text-gray-600">{a.ciudad}</td>
                   <td className="px-4 py-3 text-[12px] text-gray-500">{a.pais}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${MODAL_COLOR[a.modalidad]}`}>{a.modalidad}</span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${a.activo ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
                       {a.activo ? "Activo" : "Inactivo"}
