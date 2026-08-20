@@ -126,6 +126,8 @@ interface Carpeta {
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+
 const ESTADO_OP: Record<string, string> = {
   ABIERTA:   "bg-blue-50 text-blue-700",
   EN_CURSO:  "bg-amber-50 text-amber-700",
@@ -641,7 +643,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         const form = new FormData();
         form.append("archivo", docEditForm.archivo);
         const token = localStorage.getItem("access_token");
-        await fetch(`http://localhost:8001/operaciones/operaciones/${carpeta.operacion.id}/documentos/${docEditar.id}/archivo`, {
+        await fetch(`${BASE_URL}/operaciones/operaciones/${carpeta.operacion.id}/documentos/${docEditar.id}/archivo`, {
           method: "POST",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: form,
@@ -657,7 +659,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     if (!carpeta) return;
     const token = localStorage.getItem("access_token");
     const res = await fetch(
-      `http://localhost:8001/operaciones/operaciones/${carpeta.operacion.id}/documentos/${documentoId}/archivo`,
+      `${BASE_URL}/operaciones/operaciones/${carpeta.operacion.id}/documentos/${documentoId}/archivo`,
       { headers: token ? { Authorization: `Bearer ${token}` } : {} }
     );
     if (!res.ok) return;

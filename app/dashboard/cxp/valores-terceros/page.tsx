@@ -298,6 +298,15 @@ export default function ValoresTercerosPage() {
               </div>
               <p className="text-[10px] text-gray-400">Este documento no genera asiento propio: el pasivo (2815) lo registró la factura de venta. Se paga desde Comprobantes de pago.</p>
             </div>
+            <div className="flex gap-2 px-5 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
+              <button onClick={() => { setSel(null); setDetalle(null); }}
+                className="px-4 py-2 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-white">Cerrar</button>
+              <button onClick={() => window.open(`/factura-proveedor/${sel.id}`, "_blank")}
+                className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-white">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimir
+              </button>
+            </div>
           </div>
         </div>
       )}

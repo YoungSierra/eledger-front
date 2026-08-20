@@ -52,6 +52,15 @@ function fmt(v: string | number) {
   return parseFloat(String(v)).toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const TITULOS: Record<string, string> = {
+  FACTURA:      "Factura Proveedor",
+  COMPROBANTE:  "Comprobante de Pago",
+  NOTA_CREDITO: "Nota Crédito",
+  NOTA_DEBITO:  "Nota Débito",
+  ANTICIPO:     "Anticipo a Proveedor",
+  VRT:          "Valor Recibido para Tercero",
+};
+
 export default function ImprimirFacturaProveedorPage({ params }: { params: Promise<{ id: string }> }) {
   const [factura, setFactura]   = useState<Factura | null>(null);
   const [asiento, setAsiento]   = useState<Asiento | null>(null);
@@ -126,7 +135,7 @@ export default function ImprimirFacturaProveedorPage({ params }: { params: Promi
 
           <div style={{ textAlign: "right" }}>
             <div style={{ border: `2px solid ${s.thick}`, borderRadius: 8, padding: "10px 18px", display: "inline-block", minWidth: 180, textAlign: "right" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: s.mid }}>{factura.tipo === "NOTA_CREDITO" ? "Nota Crédito" : factura.tipo === "NOTA_DEBITO" ? "Nota Débito" : "Factura Proveedor"}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: s.mid }}>{TITULOS[factura.tipo] ?? "Factura Proveedor"}</div>
               <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1, fontFamily: "monospace", color: s.black }}>{factura.numero}</div>
               {factura.numero_proveedor && (
                 <div style={{ fontSize: 10, color: s.mid, marginTop: 2 }}>Nº prov: {factura.numero_proveedor}</div>
@@ -167,7 +176,8 @@ export default function ImprimirFacturaProveedorPage({ params }: { params: Promi
           </div>
         )}
 
-        {/* Líneas */}
+        {/* Líneas — los anticipos no tienen detalle */}
+        {factura.lineas.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: s.light, marginBottom: 8 }}>Detalle</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
@@ -206,6 +216,7 @@ export default function ImprimirFacturaProveedorPage({ params }: { params: Promi
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Resumen */}
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
