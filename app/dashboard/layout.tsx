@@ -38,8 +38,12 @@ const SECCIONES_SIDEBAR: { label: string; modulos: string[] }[] = [
   { label: "Análisis",     modulos: ["reportes"] },
 ];
 
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function buildBreadcrumb(pathname: string): string {
-  const parts = pathname.replace("/dashboard", "").split("/").filter(Boolean);
+  // El id de un detalle no dice nada al usuario ("8012cc86 d12c 4479…"): se omite.
+  // El número del documento lo muestra la propia página en su encabezado.
+  const parts = pathname.replace("/dashboard", "").split("/").filter(Boolean).filter((p) => !ES_UUID.test(p));
   if (parts.length === 0) return "";
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).replace(/-/g, " ")).join(" › ");
 }

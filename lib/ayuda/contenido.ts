@@ -454,6 +454,45 @@ const ADMINISTRACION: ModuloAyuda = {
         },
       ],
     },
+
+    // ── 12. Correo saliente ───────────────────────────────────────────────
+    {
+      id: "admin.correo",
+      titulo: "Correo saliente",
+      ruta: "/dashboard/administracion/correo",
+      resumen: "Buzón desde el que salen las notificaciones a los clientes.",
+      captura: "/ayuda/admin.correo.png",
+      bloques: [
+        {
+          tipo: "parrafo",
+          texto:
+            "Configura el buzón que usa el sistema para notificar a los clientes desde la bitácora de la operación. El envío nunca es automático: se hace solo cuando el usuario lo marca al registrar el evento.",
+        },
+        { tipo: "subtitulo", texto: "Campos" },
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Correo remitente / Nombre visible", desc: "Dirección desde la que salen los correos y el nombre que ve el cliente." },
+            { campo: "Proveedor", desc: "Llena servidor, puerto y cifrado con los valores típicos de Google Workspace, Microsoft 365 o cPanel." },
+            { campo: "Servidor / Puerto / Cifrado", desc: "Datos del SMTP de salida. Los entrega el proveedor de correo o quien administre el dominio." },
+            { campo: "Usuario y contraseña", desc: "Credenciales del buzón. La contraseña se guarda cifrada y no se puede volver a leer." },
+            { campo: "Correo de respuesta", desc: "Opcional: si las respuestas del cliente deben llegar a otra dirección." },
+            { campo: "Copia oculta interna", desc: "Opcional: buzones internos que reciben copia de cada notificación, separados por coma." },
+            { campo: "Envío activo", desc: "Si está inactivo, la bitácora no ofrece la opción de notificar al cliente." },
+          ],
+        },
+        {
+          tipo: "aviso",
+          texto:
+            "En Google Workspace y Microsoft 365 la contraseña normal NO sirve: hay que generar una contraseña de aplicación desde la configuración de seguridad de la cuenta.",
+        },
+        {
+          tipo: "nota",
+          texto:
+            "Usa Enviar prueba antes de notificar a un cliente real. Y pide a quien administre el dominio que revise SPF, DKIM y DMARC: sin ellos los correos caen en la bandeja de spam del destinatario.",
+        },
+      ],
+    },
   ],
 };
 

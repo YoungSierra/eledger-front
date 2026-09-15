@@ -9,6 +9,8 @@ interface LineaResp {
   id: string; orden: number;
   producto_codigo: string | null; producto_nombre: string | null;
   descripcion: string; cantidad: string;
+  // Cotización de la que viene la línea; vacío si el cobro nació en la operación.
+  cotizacion_numero: string | null;
   um_codigo: string | null; precio_unitario: string;
   descuento_pct: string; subtotal: string;
   iva_tipo: string; iva_pct: string; total_iva: string; total: string;
@@ -28,6 +30,8 @@ interface Factura {
   cliente_departamento: string | null; cliente_telefono: string | null;
   cliente_email: string | null; cliente_regimen: string | null;
   cliente_responsable_iva: boolean;
+  operacion_numero: string | null;
+  cotizacion_numero: string | null; cotizacion_numeros: string[];
   moneda_codigo: string; trm: string | null; condicion_pago_nombre: string | null;
   subtotal: string; total_descuentos: string; total_iva: string;
   total_retenciones: string; total: string;
@@ -294,6 +298,10 @@ export default function PrintFactura() {
                     <div><strong>Expedición:</strong> {fmtDT(factura.creado_en)}</div>
                     <div><strong>Vencimiento:</strong> {fmtDT(factura.fecha_vencimiento, false)}</div>
                     {!esFuncional && factura.trm && <div><strong>TRM:</strong> {fmt(factura.trm)}</div>}
+                    {factura.operacion_numero && <div><strong>Operación:</strong> {factura.operacion_numero}</div>}
+                    {factura.cotizacion_numeros?.length > 0 && (
+                      <div><strong>Cotización:</strong> {factura.cotizacion_numeros.join(" · ")}</div>
+                    )}
                   </>
                 );
               })()}
@@ -362,7 +370,14 @@ export default function PrintFactura() {
             {(() => {
               const filaLinea = (l: LineaResp) => (
                 <tr key={l.id} style={{ borderBottom: `1px solid ${s.border}` }}>
-                  <td style={{ padding: "8px 8px", lineHeight: 1.35 }}>{l.descripcion}</td>
+                  <td style={{ padding: "8px 8px", lineHeight: 1.35 }}>
+                    {l.descripcion}
+                    {/* La cotización va por línea: una factura de operación puede
+                        traer varias, y cada concepto responde a la suya. */}
+                    {l.cotizacion_numero && (
+                      <div style={{ fontSize: 8.5, color: s.light, fontFamily: "monospace" }}>{l.cotizacion_numero}</div>
+                    )}
+                  </td>
                   <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.cantidad)}</td>
                   <td style={{ padding: "8px 8px", color: s.mid }}>{l.um_codigo ?? ""}</td>
                   <td style={{ padding: "8px 8px", textAlign: "right", fontFamily: "monospace" }}>{fmt(l.precio_unitario)}</td>

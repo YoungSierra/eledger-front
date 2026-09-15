@@ -104,6 +104,7 @@ interface Evento {
   id: string; fecha_hora: string; usuario_id: string;
   tipo: string; descripcion: string; notificado_cliente: boolean;
   hawb_id: string | null; hawb_numero: string | null;
+  correo_enviado_en: string | null; correo_destinatarios: string | null; correo_error: string | null;
 }
 
 interface Documento {
@@ -112,6 +113,42 @@ interface Documento {
 }
 
 interface Cliente { id: string; nombre: string; nit: string | null; }
+
+// Concepto que nace en la operación: sin cotización detrás, con su propio cliente.
+interface ConceptoPropio {
+  id: string; operacion_id: string;
+  cliente_id: string; cliente_nombre: string | null;
+  concepto_id: string; concepto_nombre: string | null;
+  seccion: string; orden: number; descripcion: string;
+  cantidad: string; valor_unitario: string; costo_unitario: string;
+  total_venta: string; total_costo: string; moneda: string;
+  proveedor_id: string | null; proveedor_nombre: string | null;
+  valor_tercero: boolean; notas: string | null;
+  facturado: string; bloqueado: boolean;
+}
+
+interface ConceptoCatalogo {
+  id: string; nombre: string; seccion: string; moneda: string;
+  cuenta_ingreso_id: string | null; es_valor_tercero: boolean; activo: boolean;
+}
+
+// Una línea facturable de la operación: viene de una cotización o es propia.
+interface FactLinea {
+  origen: "cotizacion" | "operacion";
+  linea_id: string;
+  cotizacion_numero: string | null;
+  seccion: string; descripcion: string; moneda: string;
+  confirmado: boolean; opcional: boolean;
+  facturable: string; facturado: string; pendiente: string;
+}
+
+interface FactOperacion {
+  operacion_id: string; numero: string; estado: string;
+  clientes: { id: string; nombre: string }[];
+  cliente_id: string | null;
+  trm_dia: string;
+  lineas: FactLinea[];
+}
 
 interface Carpeta {
   operacion: Operacion;
@@ -255,20 +292,36 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [motivoManif, setMotivoManif]     = useState("");
   const [menuManifId, setMenuManifId]     = useState<string | null>(null);
 
-  // Facturar cotización
-  interface FactLinea { linea_id: string; seccion: string; descripcion: string; moneda: string; total_venta: string; facturado: string; pendiente: string; }
+  // Facturación — se factura la OPERACIÓN: líneas de cotización + conceptos propios.
   interface FactEstado { estado_facturacion: string; lineas: { moneda: string; total_venta: string; facturado: string; pendiente: string }[]; }
   const [factEstados, setFactEstados] = useState<Record<string, FactEstado>>({});
-  const [factCotId, setFactCotId]     = useState<string | null>(null);
-  const [factCotNum, setFactCotNum]   = useState("");
+  const [factAbierto, setFactAbierto] = useState(false);
+  const [factData, setFactData]       = useState<FactOperacion | null>(null);
+  const [factCliente, setFactCliente] = useState("");
   const [factLineas, setFactLineas]   = useState<FactLinea[]>([]);
   const [factSel, setFactSel]         = useState<Record<string, { incluir: boolean; monto: string }>>({});
   const [factMoneda, setFactMoneda]   = useState<"COP" | "USD">("COP");
+  const [factTrm, setFactTrm]         = useState("");
   const [trmHoyExiste, setTrmHoyExiste] = useState(true);
   const [factFecha, setFactFecha]     = useState("");
   const [factVenc, setFactVenc]       = useState("");
   const [factSaving, setFactSaving]   = useState(false);
   const [factError, setFactError]     = useState("");
+
+  // Conceptos propios de la operación
+  const [conceptos, setConceptos]         = useState<ConceptoPropio[]>([]);
+  const [catConceptos, setCatConceptos]   = useState<ConceptoCatalogo[]>([]);
+  const [conceptoModal, setConceptoModal] = useState(false);
+  const [conceptoEditId, setConceptoEditId] = useState<string | null>(null);
+  const [conceptoBorrar, setConceptoBorrar] = useState<ConceptoPropio | null>(null);
+  const [conceptoSaving, setConceptoSaving] = useState(false);
+  const [conceptoError, setConceptoError]   = useState("");
+  const CONCEPTO_VACIO = {
+    cliente_id: "", cliente_display: "", seccion: "", concepto_id: "", descripcion: "",
+    cantidad: "1", valor_unitario: "0", costo_unitario: "0", moneda: "COP",
+    proveedor_id: "", proveedor_display: "", valor_tercero: false, notas: "",
+  };
+  const [conceptoForm, setConceptoForm] = useState(CONCEPTO_VACIO);
 
   // Confirmación de lo cotizado
   const [conf, setConf] = useState<ConfResp | null>(null);
@@ -298,6 +351,10 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   const [docEditar, setDocEditar] = useState<Documento | null>(null);
 
   const [eventoForm, setEventoForm] = useState({ tipo: "STATUS", descripcion: "", notificado_cliente: false, hawb_id: "" });
+  // Correo al cliente desde la bitácora: opcional, nunca automático.
+  const [correoForm, setCorreoForm] = useState({ enviar: false, destinatarios: "", asunto: "", archivo: null as File | null });
+  const [correoActivo, setCorreoActivo] = useState(false);   // hay buzón configurado
+  const [reenviando, setReenviando] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ tipo: "FACTURA_COMERCIAL", nombre: "" });
   const [docEditForm, setDocEditForm] = useState<{ estado: string; fecha_recepcion: string; archivo: File | null }>({ estado: "RECIBIDO", fecha_recepcion: "", archivo: null });
   const [manifiestoForm, setManifiestoForm] = useState({ mawb_id: "", aerolinea_id: "", fecha: "" });
@@ -337,6 +394,13 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
       }));
       setFactEstados(est);
     } catch { /* redirige a /login si sesión expiró */ }
+  }, [resolvedId]);
+
+  const cargarConceptos = useCallback(async () => {
+    if (!resolvedId) return;
+    try {
+      setConceptos(await apiFetch<ConceptoPropio[]>(`/operaciones/operaciones/${resolvedId}/conceptos`));
+    } catch { /* sesión */ }
   }, [resolvedId]);
 
   // El buffer arranca con lo confirmado (o lo cotizado si nunca se tocó).
@@ -380,9 +444,11 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   useEffect(() => {
     if (!resolvedId) return;
     cargarCarpeta();
+    cargarConceptos();
     apiFetch<Aerolinea[]>("/operaciones/aerolineas?solo_activas=true").then(setAerolineas).catch(() => {});
     apiFetch<Aeropuerto[]>("/operaciones/aeropuertos?solo_activos=true").then(setAeropuertos).catch(() => {});
-  }, [resolvedId, cargarCarpeta]);
+    apiFetch<ConceptoCatalogo[]>("/operaciones/conceptos?solo_activos=true").then(setCatConceptos).catch(() => {});
+  }, [resolvedId, cargarCarpeta, cargarConceptos]);
 
   useEffect(() => { cargarConfirmacion(); }, [cargarConfirmacion]);
 
@@ -506,41 +572,143 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     finally { setSaving(false); }
   }
 
-  async function abrirFacturar(cotId: string, cotNum: string) {
-    setFactError(""); setFactCotId(cotId); setFactCotNum(cotNum);
-    const hoy = new Date().toISOString().slice(0, 10);
-    const venc = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-    setFactFecha(hoy); setFactVenc(venc); setFactMoneda("COP");
-    apiFetch<{ existe: boolean }>("/trm/hoy").then((d) => setTrmHoyExiste(!!d?.existe)).catch(() => setTrmHoyExiste(true));
+  // Trae lo facturable de la operación para un cliente. Una factura = un cliente.
+  const cargarFacturables = useCallback(async (clienteId: string) => {
+    if (!resolvedId) return;
     try {
-      const data = await apiFetch<{ lineas: FactLinea[] }>(`/operaciones/cotizaciones/${cotId}/facturacion`);
+      const qs = clienteId ? `?cliente_id=${clienteId}` : "";
+      const data = await apiFetch<FactOperacion>(`/operaciones/operaciones/${resolvedId}/facturacion${qs}`);
+      setFactData(data);
       setFactLineas(data.lineas);
+      if (!factTrm && data.trm_dia && parseFloat(data.trm_dia) > 0) setFactTrm(data.trm_dia);
       const sel: Record<string, { incluir: boolean; monto: string }> = {};
       data.lineas.forEach((l) => {
         const pend = parseFloat(l.pendiente);
         sel[l.linea_id] = { incluir: pend > 0, monto: pend > 0 ? l.pendiente : "0" };
       });
       setFactSel(sel);
+      return data;
     } catch (e) { setFactError(e instanceof Error ? e.message : "Error"); setFactLineas([]); }
+  }, [resolvedId, factTrm]);
+
+  async function abrirFacturar(clienteId?: string) {
+    setFactError(""); setFactAbierto(true);
+    const hoy = new Date().toISOString().slice(0, 10);
+    const venc = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    setFactFecha(hoy); setFactVenc(venc); setFactMoneda("COP"); setFactTrm("");
+    apiFetch<{ existe: boolean; tasa?: string }>("/trm/hoy")
+      .then((d) => { setTrmHoyExiste(!!d?.existe); if (d?.tasa) setFactTrm(String(d.tasa)); })
+      .catch(() => setTrmHoyExiste(true));
+    // Sin cliente explícito se arranca con el primero: la factura es de uno solo.
+    const data = await cargarFacturables(clienteId ?? "");
+    const inicial = clienteId ?? data?.clientes[0]?.id ?? "";
+    setFactCliente(inicial);
+    if (!clienteId && inicial) await cargarFacturables(inicial);
+  }
+
+  async function cambiarClienteFact(clienteId: string) {
+    setFactCliente(clienteId);
+    setFactError("");
+    await cargarFacturables(clienteId);
   }
 
   async function generarFactura() {
-    if (!factCotId) return;
+    if (!resolvedId || !factCliente) { setFactError("Selecciona el cliente a facturar"); return; }
     const lineas = factLineas
       .filter((l) => factSel[l.linea_id]?.incluir && parseFloat(factSel[l.linea_id]?.monto || "0") > 0)
-      .map((l) => ({ cotizacion_linea_id: l.linea_id, monto: parseFloat(factSel[l.linea_id].monto) }));
+      .map((l) => ({ origen: l.origen, linea_id: l.linea_id, monto: parseFloat(factSel[l.linea_id].monto) }));
     if (lineas.length === 0) { setFactError("Selecciona al menos una línea con monto"); return; }
     setFactSaving(true); setFactError("");
     try {
-      const fac = await apiFetch<{ id: string }>(`/facturacion/facturas/desde-cotizacion/${factCotId}`, {
+      const fac = await apiFetch<{ id: string }>(`/facturacion/facturas/desde-operacion/${resolvedId}`, {
         method: "POST",
-        body: JSON.stringify({ moneda: factMoneda, fecha: factFecha, fecha_vencimiento: factVenc, lineas }),
+        body: JSON.stringify({
+          cliente_id: factCliente,
+          moneda: factMoneda,
+          trm: factTrm ? parseFloat(factTrm) : null,
+          fecha: factFecha, fecha_vencimiento: factVenc, lineas,
+        }),
       });
-      setFactCotId(null);
+      setFactAbierto(false);
       window.open(`/dashboard/facturacion/facturas?factura=${fac.id}`, "_blank");
-      await cargarCarpeta();
+      await Promise.all([cargarCarpeta(), cargarConceptos()]);
     } catch (e) { setFactError(e instanceof Error ? e.message : "Error al facturar"); }
     finally { setFactSaving(false); }
+  }
+
+  // ── Conceptos propios ──────────────────────────────────────────────────
+
+  function abrirConceptoNuevo() {
+    setConceptoEditId(null); setConceptoError("");
+    const unico = clientes.length === 1 ? clientes[0] : null;
+    setConceptoForm({
+      ...CONCEPTO_VACIO,
+      cliente_id: unico?.id ?? "",
+      cliente_display: unico ? `${unico.nit ?? ""} — ${unico.nombre}` : "",
+    });
+    setConceptoModal(true);
+  }
+
+  function abrirConceptoEditar(c: ConceptoPropio) {
+    setConceptoEditId(c.id); setConceptoError("");
+    setConceptoForm({
+      cliente_id: c.cliente_id, cliente_display: c.cliente_nombre ?? "",
+      seccion: c.seccion,
+      concepto_id: c.concepto_id, descripcion: c.descripcion,
+      cantidad: c.cantidad, valor_unitario: c.valor_unitario, costo_unitario: c.costo_unitario,
+      moneda: c.moneda,
+      proveedor_id: c.proveedor_id ?? "", proveedor_display: c.proveedor_nombre ?? "",
+      valor_tercero: c.valor_tercero, notas: c.notas ?? "",
+    });
+    setConceptoModal(true);
+  }
+
+  async function guardarConcepto() {
+    if (!conceptoForm.cliente_id) { setConceptoError("Indica el cliente al que se le factura"); return; }
+    if (!conceptoForm.seccion) { setConceptoError("Selecciona la sección"); return; }
+    if (!conceptoForm.concepto_id) { setConceptoError("Selecciona el concepto"); return; }
+    if (parseFloat(conceptoForm.cantidad || "0") <= 0) { setConceptoError("La cantidad debe ser mayor que cero"); return; }
+    if (conceptoForm.valor_tercero && !conceptoForm.proveedor_id) {
+      setConceptoError("Un valor para tercero debe indicar el proveedor al que se traslada"); return;
+    }
+    setConceptoSaving(true); setConceptoError("");
+    const body = {
+      cliente_id: conceptoForm.cliente_id,
+      seccion: conceptoForm.seccion,
+      concepto_id: conceptoForm.concepto_id,
+      descripcion: conceptoForm.descripcion || null,
+      cantidad: conceptoForm.cantidad || "1",
+      valor_unitario: conceptoForm.valor_unitario || "0",
+      costo_unitario: conceptoForm.costo_unitario || "0",
+      moneda: conceptoForm.moneda,
+      proveedor_id: conceptoForm.proveedor_id || null,
+      valor_tercero: conceptoForm.valor_tercero,
+      notas: conceptoForm.notas || null,
+    };
+    try {
+      if (conceptoEditId) {
+        await apiFetch(`/operaciones/operaciones/${resolvedId}/conceptos/${conceptoEditId}`, {
+          method: "PUT", body: JSON.stringify(body),
+        });
+      } else {
+        await apiFetch(`/operaciones/operaciones/${resolvedId}/conceptos`, {
+          method: "POST", body: JSON.stringify(body),
+        });
+      }
+      setConceptoModal(false);
+      await cargarConceptos();
+    } catch (e) { setConceptoError(e instanceof Error ? e.message : "Error al guardar"); }
+    finally { setConceptoSaving(false); }
+  }
+
+  async function eliminarConcepto(id: string) {
+    setConceptoSaving(true);
+    try {
+      await apiFetch(`/operaciones/operaciones/${resolvedId}/conceptos/${id}`, { method: "DELETE" });
+      setConceptoBorrar(null);
+      await cargarConceptos();
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al eliminar"); }
+    finally { setConceptoSaving(false); }
   }
 
   async function abrirManifiestoModal() {
@@ -600,18 +768,82 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     finally { setSaving(false); }
   }
 
+  /** Precarga el correo del cliente al abrir el modal o al cambiar el HAWB. */
+  async function cargarDestinatarios(hawbId: string) {
+    if (!carpeta) return;
+    try {
+      const q = hawbId ? `?hawb_id=${hawbId}` : "";
+      const d = await apiFetch<{ destinatarios: string[]; correo_configurado: boolean }>(
+        `/operaciones/operaciones/${carpeta.operacion.id}/correo-destinatarios${q}`);
+      setCorreoActivo(d.correo_configurado);
+      setCorreoForm((p) => ({ ...p, destinatarios: d.destinatarios.join(", ") }));
+    } catch { setCorreoActivo(false); }
+  }
+
+  function abrirEventoModal() {
+    setEventoForm({ tipo: "STATUS", descripcion: "", notificado_cliente: false, hawb_id: "" });
+    setCorreoForm({ enviar: false, destinatarios: "", asunto: "", archivo: null });
+    setEventoModal(true);
+    cargarDestinatarios("");
+  }
+
+  /** Sube el archivo al evento. El correo lo adjunta solo (así el reenvío lo conserva). */
+  async function subirAdjuntoEvento(eventoId: string, archivo: File) {
+    const form = new FormData();
+    form.append("archivo", archivo);
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${BASE_URL}/adjuntos/ope_evento/${eventoId}`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) throw new Error("No se pudo subir el adjunto");
+  }
+
   async function guardarEvento() {
     if (!carpeta || !eventoForm.descripcion.trim()) return;
     setSaving(true); setError("");
     try {
-      await apiFetch(`/operaciones/operaciones/${carpeta.operacion.id}/eventos`, {
+      const ev = await apiFetch<Evento>(`/operaciones/operaciones/${carpeta.operacion.id}/eventos`, {
         method: "POST", body: JSON.stringify({ ...eventoForm, hawb_id: eventoForm.hawb_id || null }),
       });
+      // El evento ya quedó registrado: si el correo falla, se avisa pero no se pierde.
+      if (correoForm.enviar) {
+        try {
+          if (correoForm.archivo) await subirAdjuntoEvento(ev.id, correoForm.archivo);
+          await apiFetch(`/operaciones/eventos/${ev.id}/enviar-correo`, {
+            method: "POST",
+            body: JSON.stringify({
+              destinatarios: correoForm.destinatarios.split(",").map((d) => d.trim()).filter(Boolean),
+              asunto: correoForm.asunto,
+              mensaje: eventoForm.descripcion,
+            }),
+          });
+        } catch (e) {
+          setError(`El evento quedó registrado, pero el correo no salió: ${e instanceof Error ? e.message : "error"}`);
+        }
+      }
       setEventoModal(false);
       setEventoForm({ tipo: "STATUS", descripcion: "", notificado_cliente: false, hawb_id: "" });
+      setCorreoForm({ enviar: false, destinatarios: "", asunto: "", archivo: null });
       await cargarCarpeta();
     } catch (e) { setError(e instanceof Error ? e.message : "Error al guardar evento"); }
     finally { setSaving(false); }
+  }
+
+  /** Reintento de un correo que falló: mismos destinatarios y mismo adjunto. */
+  async function reenviarCorreo(ev: Evento) {
+    const destinatarios = (ev.correo_destinatarios ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+    if (!destinatarios.length) return;
+    setReenviando(ev.id); setError("");
+    try {
+      await apiFetch(`/operaciones/eventos/${ev.id}/enviar-correo`, {
+        method: "POST",
+        body: JSON.stringify({ destinatarios, asunto: "", mensaje: ev.descripcion }),
+      });
+      await cargarCarpeta();
+    } catch (e) { setError(e instanceof Error ? e.message : "No se pudo reenviar el correo"); }
+    finally { setReenviando(null); }
   }
 
   async function guardarDocumento() {
@@ -733,7 +965,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-[16px] font-bold text-gray-800">{title}</h1>
+              <h1 className="text-[17px] font-bold text-gray-800 tracking-tight">{operacion.numero}</h1>
               <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold ${ESTADO_OP[operacion.estado] ?? "bg-gray-100 text-gray-500"}`}>
                 {operacion.estado}
               </span>
@@ -754,6 +986,13 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               </svg>
               Hoja de operación
             </button>
+            {operacion.estado !== "CANCELADA" && (
+              <button onClick={() => abrirFacturar()} disabled={saving}
+                title="Factura la operación: líneas confirmadas de sus cotizaciones y conceptos propios"
+                className="px-3 py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 text-[12px] font-medium rounded-lg">
+                Facturar operación
+              </button>
+            )}
             {operacion.estado === "ABIERTA" && (
               <button onClick={() => cambiarEstadoOp("EN_CURSO")} disabled={saving}
                 className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
@@ -778,12 +1017,25 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
       {error && <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-600">{error}</div>}
 
-      {factCotId && (
+      {factAbierto && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl p-6 max-h-[90vh] flex flex-col">
-            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Facturar cotización {factCotNum}</h2>
-            <p className="text-[11px] text-gray-400 mb-3">Selecciona las líneas y el monto a facturar (en la moneda de cada línea). Se genera una factura de venta en borrador.</p>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-5xl p-6 max-h-[90vh] flex flex-col">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Facturar operación {operacion.numero}</h2>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Entra lo confirmado de las cotizaciones y los conceptos propios de la operación.
+              Una factura cubre un solo cliente. Se genera en borrador.
+            </p>
             <div className="flex flex-wrap items-end gap-3 mb-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Cliente</label>
+                <select value={factCliente} onChange={(e) => cambiarClienteFact(e.target.value)}
+                  className="h-[34px] px-2.5 border border-gray-200 rounded-md text-[12px] bg-white min-w-[220px]">
+                  {(factData?.clientes ?? []).length === 0 && <option value="">Sin clientes</option>}
+                  {(factData?.clientes ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Moneda factura</label>
                 <select value={factMoneda} onChange={(e) => setFactMoneda(e.target.value as "COP" | "USD")}
@@ -793,6 +1045,11 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 </select>
               </div>
               <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">TRM</label>
+                <MontoInput value={factTrm} decimales={2} onChange={setFactTrm}
+                  className="h-[34px] w-[120px] px-2.5 border border-gray-200 rounded-md text-[12px] text-right" />
+              </div>
+              <div>
                 <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Fecha</label>
                 <input type="date" value={factFecha} onChange={(e) => setFactFecha(e.target.value)} className="h-[34px] px-2.5 border border-gray-200 rounded-md text-[12px]" />
               </div>
@@ -800,14 +1057,20 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Vencimiento</label>
                 <input type="date" value={factVenc} onChange={(e) => setFactVenc(e.target.value)} className="h-[34px] px-2.5 border border-gray-200 rounded-md text-[12px]" />
               </div>
+              <p className="text-[10px] text-gray-400 pb-2">
+                TRM del día precargada; puedes cambiarla. Se aplica a toda la factura.
+              </p>
             </div>
             <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg">
               {factLineas.length === 0 ? (
-                <p className="text-[12px] text-gray-400 text-center py-6">Esta cotización no tiene conceptos.</p>
+                <p className="text-[12px] text-gray-400 text-center py-6">
+                  Este cliente no tiene nada facturable en esta operación.
+                </p>
               ) : (
                 <table className="w-full text-[11px] table-fixed">
                   <colgroup>
                     <col style={{ width: "32px" }} />
+                    <col style={{ width: "120px" }} />
                     <col />
                     <col style={{ width: "140px" }} />
                     <col style={{ width: "140px" }} />
@@ -821,6 +1084,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                           onChange={(e) => { const v = e.target.checked; setFactSel((p) => { const n = { ...p }; factLineas.forEach((l) => { if (parseFloat(l.pendiente) > 0) n[l.linea_id] = { ...n[l.linea_id], incluir: v }; }); return n; }); }}
                           className="accent-blue-600" />
                       </th>
+                      <th className="px-2 py-1.5">Cotización</th>
                       <th className="px-2 py-1.5">Concepto</th>
                       <th className="px-2 py-1.5 text-right">Facturado</th>
                       <th className="px-2 py-1.5 text-right">Pendiente</th>
@@ -833,15 +1097,21 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                       const fact = parseFloat(l.facturado);
                       const bloqueada = pend <= 0.0001;
                       return (
-                      <tr key={l.linea_id} className={`border-t border-gray-50 ${bloqueada ? "bg-gray-50/60" : ""}`}>
+                      <tr key={`${l.origen}-${l.linea_id}`} className={`border-t border-gray-50 ${bloqueada ? "bg-gray-50/60" : ""}`}>
                         <td className="px-2 py-1.5">
                           <input type="checkbox" disabled={bloqueada} checked={factSel[l.linea_id]?.incluir ?? false}
                             onChange={(e) => setFactSel((p) => ({ ...p, [l.linea_id]: { ...p[l.linea_id], incluir: e.target.checked } }))}
                             className="accent-blue-600 disabled:opacity-40" />
                         </td>
+                        <td className="px-2 py-1.5">
+                          {l.cotizacion_numero
+                            ? <span className="font-mono text-[10px] text-blue-700">{l.cotizacion_numero}</span>
+                            : <span className="text-[9px] uppercase font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">Operación</span>}
+                        </td>
                         <td className="px-2 py-1.5 text-gray-700 truncate">
                           {l.descripcion}
-                          {bloqueada && <span className="ml-2 text-[9px] text-gray-400 uppercase">facturado</span>}
+                          {bloqueada && fact > 0 && <span className="ml-2 text-[9px] text-gray-400 uppercase">facturado</span>}
+                          {bloqueada && fact <= 0 && !l.confirmado && <span className="ml-2 text-[9px] text-purple-500 uppercase">sin confirmar</span>}
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono text-emerald-700 whitespace-nowrap">{fact > 0 ? `${l.moneda} ${fact.toLocaleString("es-CO", { minimumFractionDigits: 2 })}` : "—"}</td>
                         <td className="px-2 py-1.5 text-right font-mono text-gray-500 whitespace-nowrap">{l.moneda} {(pend > 0 ? pend : 0).toLocaleString("es-CO", { minimumFractionDigits: 2 })}</td>
@@ -860,21 +1130,170 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 </table>
               )}
             </div>
-            {factMoneda === "USD" && !trmHoyExiste && (
+            {factMoneda === "USD" && parseFloat(factTrm || "0") <= 0 && (
               <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 <svg className="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <p className="text-[11px] text-amber-700">
-                  No hay TRM registrada para hoy. No es posible facturar en USD hasta que el administrador la registre; puedes facturar en COP o volver más tarde.
+                  {trmHoyExiste
+                    ? "Escribe la TRM que aplica a esta factura para poder facturar en USD."
+                    : "No hay TRM registrada para hoy. Escríbela aquí o pídele al administrador que la registre."}
                 </p>
               </div>
             )}
             {factError && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mt-3">{factError}</p>}
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setFactCotId(null)} disabled={factSaving}
+              <button onClick={() => setFactAbierto(false)} disabled={factSaving}
                 className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
-              <button onClick={generarFactura} disabled={factSaving || factLineas.length === 0 || (factMoneda === "USD" && !trmHoyExiste)}
+              <button onClick={generarFactura} disabled={factSaving || factLineas.length === 0 || (factMoneda === "USD" && parseFloat(factTrm || "0") <= 0)}
                 className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                 {factSaving ? "Generando..." : "Generar factura"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {conceptoModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">
+              {conceptoEditId ? "Editar concepto de la operación" : "Nuevo concepto de la operación"}
+            </h2>
+            <p className="text-[11px] text-gray-400 mb-4">
+              Cobro que no estaba cotizado. No toca la cotización y queda facturable de una vez.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <BusquedaInput label="Cliente al que se le factura" display={conceptoForm.cliente_display}
+                  placeholder="Buscar por NIT o razón social…"
+                  fetchFn={async (q) => {
+                    const r = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(q)}&solo_activos=true`).catch(() => []);
+                    return r.slice(0, 10).map((t) => ({ id: t.id, label: `${t.nit} — ${t.razon_social}` }));
+                  }}
+                  onSelect={(id, label) => setConceptoForm((f) => ({ ...f, cliente_id: id, cliente_display: label }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Sección</label>
+                <select value={conceptoForm.seccion} className={inputCls}
+                  onChange={(e) => setConceptoForm((f) => ({
+                    // Cambiar de sección invalida el concepto elegido.
+                    ...f, seccion: e.target.value, concepto_id: "",
+                  }))}>
+                  <option value="">Selecciona…</option>
+                  {SECCIONES_ORDEN.map((sec) => (
+                    <option key={sec} value={sec}>{SECCION_LABEL[sec]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Concepto</label>
+                <select value={conceptoForm.concepto_id} className={inputCls}
+                  disabled={!conceptoForm.seccion}
+                  onChange={(e) => {
+                    const c = catConceptos.find((x) => x.id === e.target.value);
+                    setConceptoForm((f) => ({
+                      ...f,
+                      concepto_id: e.target.value,
+                      descripcion: f.descripcion || (c?.nombre ?? ""),
+                      moneda: c?.moneda ?? f.moneda,
+                      valor_tercero: c?.es_valor_tercero ?? f.valor_tercero,
+                    }));
+                  }}>
+                  <option value="">{conceptoForm.seccion ? "Selecciona…" : "Elige primero la sección"}</option>
+                  {catConceptos.filter((c) => c.seccion === conceptoForm.seccion).map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className={labelCls}>Descripción</label>
+                <input value={conceptoForm.descripcion} className={inputCls}
+                  placeholder="Lo que verá el cliente en la factura"
+                  onChange={(e) => setConceptoForm((f) => ({ ...f, descripcion: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Cantidad</label>
+                <MontoInput value={conceptoForm.cantidad} decimales={2} className={inputCls}
+                  onChange={(v) => setConceptoForm((f) => ({ ...f, cantidad: v }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Moneda</label>
+                <select value={conceptoForm.moneda} className={inputCls}
+                  onChange={(e) => setConceptoForm((f) => ({ ...f, moneda: e.target.value }))}>
+                  <option value="COP">COP</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Valor unitario (venta)</label>
+                <MontoInput value={conceptoForm.valor_unitario} decimales={2} className={inputCls}
+                  onChange={(v) => setConceptoForm((f) => ({ ...f, valor_unitario: v }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Costo unitario</label>
+                <MontoInput value={conceptoForm.costo_unitario} decimales={2} className={inputCls}
+                  onChange={(v) => setConceptoForm((f) => ({ ...f, costo_unitario: v }))} />
+                <span className="block text-[10px] text-gray-400 mt-0.5">Solo margen. No genera cuenta por pagar.</span>
+              </div>
+              <div>
+                <label className={labelCls}>Total venta</label>
+                <p className="px-2.5 py-1.5 text-[12px] font-mono text-gray-800 bg-gray-50 border border-gray-100 rounded-md">
+                  {conceptoForm.moneda} {fmt(parseFloat(conceptoForm.cantidad || "0") * parseFloat(conceptoForm.valor_unitario || "0"))}
+                </p>
+              </div>
+              <div className="col-span-2 flex items-start gap-2 pt-1">
+                <input type="checkbox" checked={conceptoForm.valor_tercero} className="mt-0.5 accent-blue-600"
+                  onChange={(e) => setConceptoForm((f) => ({ ...f, valor_tercero: e.target.checked }))} />
+                <div>
+                  <span className="text-[12px] text-gray-700">Valor recibido para tercero</span>
+                  <span className="block text-[10px] text-gray-400">
+                    No genera ingreso propio ni IVA: se traslada al proveedor y se crea el documento de CxP.
+                  </span>
+                </div>
+              </div>
+              {conceptoForm.valor_tercero && (
+                <div className="col-span-2">
+                  <BusquedaInput label="Proveedor al que se traslada" display={conceptoForm.proveedor_display}
+                    placeholder="Buscar por NIT o razón social…"
+                    fetchFn={async (q) => {
+                      const r = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(q)}&solo_activos=true`).catch(() => []);
+                      return r.slice(0, 10).map((t) => ({ id: t.id, label: `${t.nit} — ${t.razon_social}` }));
+                    }}
+                    onSelect={(id, label) => setConceptoForm((f) => ({ ...f, proveedor_id: id, proveedor_display: label }))} />
+                </div>
+              )}
+              <div className="col-span-2">
+                <label className={labelCls}>Notas</label>
+                <textarea value={conceptoForm.notas} rows={2} className={inputCls}
+                  onChange={(e) => setConceptoForm((f) => ({ ...f, notas: e.target.value }))} />
+              </div>
+            </div>
+            {conceptoError && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mt-3">{conceptoError}</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setConceptoModal(false)} disabled={conceptoSaving}
+                className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
+              <button onClick={guardarConcepto} disabled={conceptoSaving}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {conceptoSaving ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {conceptoBorrar && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-2">Eliminar concepto</h2>
+            <p className="text-[12px] text-gray-500 mb-4">
+              ¿Eliminar «{conceptoBorrar.descripcion}» de la operación? No se podrá facturar.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConceptoBorrar(null)} disabled={conceptoSaving}
+                className="px-4 py-1.5 text-[12px] text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">No, volver</button>
+              <button onClick={() => eliminarConcepto(conceptoBorrar.id)} disabled={conceptoSaving}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                {conceptoSaving ? "Eliminando..." : "Sí, eliminar"}
               </button>
             </div>
           </div>
@@ -1142,7 +1561,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                       Confirmar
                     </button>
                   ) : (
-                    <button onClick={() => abrirFacturar(cot.id, cot.numero)}
+                    <button onClick={() => abrirFacturar(cot.cliente_id)}
                       className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold border border-emerald-200 bg-emerald-50 rounded-md px-2 py-0.5">
                       Facturar
                     </button>
@@ -1429,6 +1848,89 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
               </div>
             );
           })}
+
+          {/* ── Conceptos propios de la operación ──────────────────────── */}
+          <div className="space-y-3 pt-3 border-t border-gray-200">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              Conceptos de la operación
+            </p>
+            <div className="flex items-start justify-between gap-4">
+              <p className="text-[11px] text-gray-500 max-w-2xl">
+                Cobros que nacieron en la operación y nunca se cotizaron: bodegajes, reexpediciones,
+                cargos de aerolínea. No tocan la cotización, se le facturan al cliente que se indique
+                aquí y quedan facturables de una vez — no pasan por confirmación.
+              </p>
+              {!opBloqueada && (
+                <button onClick={abrirConceptoNuevo}
+                  className="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
+                  Nuevo concepto
+                </button>
+              )}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              {conceptos.length === 0 ? (
+                <p className="text-[12px] text-gray-400 text-center py-8">
+                  Sin conceptos propios. Todo lo facturable viene de las cotizaciones.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-[11px]">
+                    <thead className="bg-gray-50">
+                      <tr className="text-left text-[9px] uppercase text-gray-500">
+                        <th className="px-3 py-2">Cliente</th>
+                        <th className="px-3 py-2">Concepto</th>
+                        <th className="px-3 py-2 text-right">Cant.</th>
+                        <th className="px-3 py-2 text-right">Vr. unitario</th>
+                        <th className="px-3 py-2 text-right">Total venta</th>
+                        <th className="px-3 py-2 text-right">Costo</th>
+                        <th className="px-3 py-2 text-right">Facturado</th>
+                        <th className="px-3 py-2 w-20"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conceptos.map((c) => (
+                        <tr key={c.id} className="border-t border-gray-50">
+                          <td className="px-3 py-2 text-gray-700">{c.cliente_nombre ?? "—"}</td>
+                          <td className="px-3 py-2">
+                            <span className="text-gray-800">{c.descripcion}</span>
+                            {c.valor_tercero && (
+                              <span className="ml-2 text-[9px] uppercase font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                                tercero
+                              </span>
+                            )}
+                            <span className="block text-[10px] text-gray-400">
+                              {SECCION_LABEL[c.seccion] ?? c.seccion}
+                              {c.proveedor_nombre ? ` · ${c.proveedor_nombre}` : ""}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-600">{fmt(c.cantidad, 2)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-600">{c.moneda} {fmt(c.valor_unitario)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-800 font-semibold">{c.moneda} {fmt(c.total_venta)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-400">{c.moneda} {fmt(c.total_costo)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-emerald-700">
+                            {parseFloat(c.facturado) > 0 ? `${c.moneda} ${fmt(c.facturado)}` : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            {c.bloqueado ? (
+                              <span className="text-[9px] uppercase text-gray-400">facturado</span>
+                            ) : opBloqueada ? null : (
+                              <>
+                                <button onClick={() => abrirConceptoEditar(c)}
+                                  className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">Editar</button>
+                                <button onClick={() => setConceptoBorrar(c)}
+                                  className="ml-3 text-[11px] text-gray-400 hover:text-red-600 font-medium">Eliminar</button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       )}
 
@@ -1658,7 +2160,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
       {tab === "bitacora" && (
         <div className="space-y-3">
           <div className="flex justify-end">
-            <button onClick={() => setEventoModal(true)}
+            <button onClick={abrirEventoModal}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -1686,14 +2188,31 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                         {ev.hawb_numero && (
                           <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{ev.hawb_numero}</span>
                         )}
-                        {ev.notificado_cliente && (
-                          <span className="text-[10px] text-green-600 font-medium">· Notificado al cliente</span>
+                        {ev.correo_enviado_en && (
+                          <span className="text-[10px] text-green-600 font-medium"
+                            title={`Enviado a ${ev.correo_destinatarios ?? ""}`}>
+                            · Correo enviado
+                          </span>
                         )}
                         <span className="text-[10px] text-gray-400 ml-auto">
                           {new Date(ev.fecha_hora).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}
                         </span>
                       </div>
                       <p className="text-[12px] text-gray-700">{ev.descripcion}</p>
+                      {ev.correo_enviado_en && ev.correo_destinatarios && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">Para: {ev.correo_destinatarios}</p>
+                      )}
+                      {ev.correo_error && (
+                        <div className="mt-1.5 flex items-start gap-2">
+                          <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 flex-1">
+                            El correo no salió: {ev.correo_error}
+                          </p>
+                          <button onClick={() => reenviarCorreo(ev)} disabled={reenviando === ev.id}
+                            className="shrink-0 px-2.5 py-1 border border-gray-200 rounded text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                            {reenviando === ev.id ? "Reenviando..." : "Reenviar"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1898,35 +2417,93 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                   {Object.entries(TIPO_EVENTO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </div>
-              <div>
-                <label className={labelCls}>HAWB (opcional — dirige el evento a un cliente)</label>
-                <select className={inputCls} value={eventoForm.hawb_id}
-                  onChange={(e) => setEventoForm((p) => ({ ...p, hawb_id: e.target.value }))}>
-                  <option value="">General (toda la operación)</option>
-                  {hawbs.map((h) => (
-                    <option key={h.id} value={h.id}>{h.numero_hawb}{h.cliente_nombre ? ` · ${h.cliente_nombre}` : ""}</option>
-                  ))}
-                </select>
-              </div>
+              {hawbs.length > 0 && (
+                <div>
+                  <label className={labelCls}>¿A qué cliente aplica?</label>
+                  <select className={inputCls} value={eventoForm.hawb_id}
+                    onChange={(e) => { setEventoForm((p) => ({ ...p, hawb_id: e.target.value })); cargarDestinatarios(e.target.value); }}>
+                    <option value="">General — toda la operación</option>
+                    {hawbs.map((h) => (
+                      <option key={h.id} value={h.id}>{h.cliente_nombre ? `${h.cliente_nombre} · ` : ""}{h.numero_hawb}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Si la operación consolida carga de varios clientes, elige la guía hija (HAWB) del que corresponde:
+                    el evento y el correo van solo a ese. General = a todos los clientes de la operación.
+                  </p>
+                </div>
+              )}
               <div>
                 <label className={labelCls}>Descripción *</label>
                 <textarea rows={3} className={inputCls + " resize-none"}
                   value={eventoForm.descripcion} placeholder="Describe el evento..."
                   onChange={(e) => setEventoForm((p) => ({ ...p, descripcion: e.target.value }))} />
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={eventoForm.notificado_cliente}
-                  onChange={(e) => setEventoForm((p) => ({ ...p, notificado_cliente: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span className="text-[12px] text-gray-600">Notificado al cliente</span>
-              </label>
+              <div className="border-t border-gray-100 pt-3">
+                <label className={correoActivo ? "flex items-center gap-2 cursor-pointer" : "flex items-center gap-2 opacity-50"}>
+                  <input type="checkbox" checked={correoForm.enviar} disabled={!correoActivo}
+                    onChange={(e) => setCorreoForm((p) => ({ ...p, enviar: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  <span className="text-[12px] text-gray-600">Enviar este evento al cliente por correo</span>
+                </label>
+                {!correoActivo && (
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    No hay buzón configurado. Se configura en Administración → Correo saliente.
+                  </p>
+                )}
+                {/* El destinatario se ve ANTES de marcar: si el cliente no tiene correo en su
+                    ficha hay que saberlo aquí, no al abrir el formulario de envío. */}
+                {correoActivo && !correoForm.enviar && (
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {correoForm.destinatarios
+                      ? <>Se enviará a <span className="text-gray-600">{correoForm.destinatarios}</span></>
+                      : "El cliente no tiene correo en su ficha — al marcar podrás escribirlo."}
+                  </p>
+                )}
+
+                {correoForm.enviar && (
+                  <div className="space-y-3 mt-3">
+                    <div>
+                      <label className={labelCls}>Para *</label>
+                      <input className={inputCls} value={correoForm.destinatarios}
+                        placeholder="correo@cliente.com, otro@cliente.com"
+                        onChange={(e) => setCorreoForm((p) => ({ ...p, destinatarios: e.target.value }))} />
+                      {correoForm.destinatarios ? (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Viene de la ficha del cliente. Puedes cambiarlo o agregar más, separados por coma.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                          El cliente no tiene correo registrado en su ficha. Escribe la dirección aquí — para que
+                          salga sola la próxima vez, guárdala en Terceros.
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className={labelCls}>Asunto</label>
+                      <input className={inputCls} value={correoForm.asunto}
+                        placeholder={`Operación ${operacion.numero} — ${TIPO_EVENTO[eventoForm.tipo] ?? eventoForm.tipo}`}
+                        onChange={(e) => setCorreoForm((p) => ({ ...p, asunto: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Adjunto (opcional)</label>
+                      <input type="file" className="w-full text-[12px] text-gray-600 file:mr-2 file:px-2 file:py-1 file:text-[11px] file:border file:border-gray-200 file:rounded file:bg-white file:text-gray-600"
+                        onChange={(e) => setCorreoForm((p) => ({ ...p, archivo: e.target.files?.[0] ?? null }))} />
+                    </div>
+                    <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                      El cliente recibe la descripción del evento con el número de operación y la referencia.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setEventoModal(false)}
                 className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={guardarEvento} disabled={saving || !eventoForm.descripcion.trim()}
+              <button onClick={guardarEvento}
+                disabled={saving || !eventoForm.descripcion.trim() || (correoForm.enviar && !correoForm.destinatarios.trim())}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
                 {saving ? "Guardando..." : "Registrar"}
               </button>

@@ -60,7 +60,10 @@ interface LineaForm {
   total: string;
   cuenta_ingreso_id: string; cuenta_ingreso_display: string;
   centro_costo_id: string;
-  cotizacion_linea_id?: string; monto_cotizacion?: string;
+  // Origen de la línea: cotización o concepto propio de la operación (excluyentes).
+  cotizacion_linea_id?: string; operacion_concepto_id?: string;
+  cotizacion_numero?: string;
+  monto_cotizacion?: string;
   valor_tercero: boolean;
   proveedor_id: string; proveedor_display: string;
 }
@@ -75,7 +78,9 @@ interface LineaResp {
   total: string;
   cuenta_ingreso_id: string | null; cuenta_ingreso_codigo: string | null; cuenta_ingreso_nombre: string | null;
   centro_costo_id: string | null; centro_costo_codigo: string | null;
-  cotizacion_linea_id: string | null; monto_cotizacion: string | null;
+  cotizacion_linea_id: string | null; operacion_concepto_id: string | null;
+  cotizacion_numero: string | null;
+  monto_cotizacion: string | null;
   valor_tercero: boolean;
   proveedor_id: string | null; proveedor_nombre: string | null;
 }
@@ -89,7 +94,9 @@ interface RetencionResp {
 type PreviewAsiento = AsientoData;
 
 interface CotFactLinea {
+  origen: "cotizacion" | "operacion";
   linea_id: string; descripcion: string; moneda: string; pendiente: string;
+  cotizacion_numero: string | null;
   cuenta_ingreso_id: string | null; cuenta_ingreso_display: string | null;
   tarifa_iva_id: string | null; iva_pct: string;
   cuenta_iva_id: string | null; cuenta_iva_display: string | null;
@@ -103,7 +110,9 @@ interface Factura {
   fecha: string; fecha_vencimiento: string;
   periodo_id: string;
   cliente_id: string; cliente_nit: string | null; cliente_nombre: string | null;
+  operacion_id: string | null; operacion_numero: string | null;
   cotizacion_id: string | null; cotizacion_numero: string | null;
+  cotizacion_numeros: string[];
   moneda_id: string; moneda_codigo: string; trm: string | null;
   condicion_pago_id: string | null; condicion_pago_nombre: string | null;
   subtotal: string; total_descuentos: string; total_iva: string;
@@ -121,6 +130,7 @@ interface ListItem {
   id: string; numero: string;
   fecha: string; fecha_vencimiento: string;
   cliente_nit: string | null; cliente_nombre: string | null;
+  operacion_numero: string | null;
   moneda_codigo: string; subtotal: string; total_iva: string;
   total_retenciones: string; total: string;
   estado: "borrador" | "contabilizada" | "anulada";
@@ -351,7 +361,11 @@ function Modal({
   const [notas, setNotas] = useState(factura?.notas ?? "");
   const [cotizacionId, setCotizacionId] = useState(factura?.cotizacion_id ?? "");
   const [cotizacionNumero, setCotizacionNumero] = useState(factura?.cotizacion_numero ?? "");
-  // Picker "cargar desde cotización"
+  // La factura se amarra a la OPERACIÓN: trae líneas de sus cotizaciones y
+  // conceptos propios. `cotizacionId` solo sobrevive si todo salió de una sola.
+  const [operacionId, setOperacionId] = useState(factura?.operacion_id ?? "");
+  const [operacionNumero, setOperacionNumero] = useState(factura?.operacion_numero ?? "");
+  // Picker "cargar desde operación"
   const [cargarOpen, setCargarOpen] = useState(false);
   const [cotOpts, setCotOpts] = useState<{ id: string; numero: string }[]>([]);
   const [cotSelId, setCotSelId] = useState("");
@@ -363,6 +377,8 @@ function Modal({
   const [motivo, setMotivo] = useState("");
   const [showAnular, setShowAnular] = useState(false);
 
+  // Con líneas traídas de una operación no hay producto que escoger: es concepto.
+  const origenOperacion = !!operacionId || !!cotizacionId;
   const monedaSel = monedas.find(m => m.id === monedaId);
   const esExtranjera = monedaSel && !monedaSel.es_funcional;
   const decimalesFuncional = monedas.find(m => m.es_funcional)?.decimales ?? 2;
@@ -377,31 +393,33 @@ function Modal({
     }
   }
 
-  async function abrirCargarCotizacion() {
-    if (!clienteId) { setError("Selecciona primero el cliente para cargar sus cotizaciones"); return; }
+  async function abrirCargarOperacion() {
+    if (!clienteId) { setError("Selecciona primero el cliente para cargar sus operaciones"); return; }
     setError(""); setCargarError(""); setCotSelId(""); setCotFactLineas([]); setCotMontos({});
     try {
-      const cots = await apiFetch<{ id: string; numero: string }[]>(`/operaciones/cotizaciones?cliente_id=${clienteId}`);
-      setCotOpts(cots.map(c => ({ id: c.id, numero: c.numero })));
+      const ops = await apiFetch<{ id: string; numero: string }[]>(`/operaciones/operaciones?cliente_id=${clienteId}`);
+      setCotOpts(ops.map(o => ({ id: o.id, numero: o.numero })));
     } catch { setCotOpts([]); }
     setCargarOpen(true);
   }
 
-  async function seleccionarCotizacion(cotId: string) {
+  async function seleccionarOperacion(opId: string) {
     setCargarError("");
     try {
-      const excl = factura ? `?excluir_factura_id=${factura.id}` : "";
-      const data = await apiFetch<{ trm: string; lineas: (CotFactLinea & { pendiente: string })[] }>(`/operaciones/cotizaciones/${cotId}/facturacion${excl}`);
+      // Al editar un borrador, sus propias líneas no cuentan como facturado.
+      const excl = factura ? `&excluir_factura_id=${factura.id}` : "";
+      const data = await apiFetch<{ trm_dia: string; lineas: CotFactLinea[] }>(
+        `/operaciones/operaciones/${opId}/facturacion?cliente_id=${clienteId}${excl}`);
       const pend = data.lineas.filter(l => parseFloat(l.pendiente) > 0);
       setCotFactLineas(pend);
-      setCotTrm(data.trm ?? "0");
-      // La factura se convierte con la TRM del DÍA (no la de la cotización).
+      // En factura manda la TRM del día; la de la operación no existe como tal.
       const hoy = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
-      setTrmDia(hoy?.existe && hoy.tasa ? hoy.tasa : (data.trm ?? "0"));
+      const tasa = hoy?.existe && hoy.tasa ? hoy.tasa : (data.trm_dia ?? "0");
+      setCotTrm(tasa); setTrmDia(tasa);
       const m: Record<string, { incluir: boolean; monto: string }> = {};
       pend.forEach(l => { m[l.linea_id] = { incluir: true, monto: l.pendiente }; });
       setCotMontos(m);
-      setCotSelId(cotId);
+      setCotSelId(opId);
     } catch (e) { setCargarError(e instanceof Error ? e.message : "Error"); }
   }
 
@@ -429,15 +447,24 @@ function Modal({
           total: String(sub + totalIva),
           cuenta_ingreso_id: l.cuenta_ingreso_id || "", cuenta_ingreso_display: l.cuenta_ingreso_display || "",
           centro_costo_id: "",
-          cotizacion_linea_id: l.linea_id, monto_cotizacion: String(native),
+          cotizacion_linea_id: l.origen === "cotizacion" ? l.linea_id : undefined,
+          operacion_concepto_id: l.origen === "operacion" ? l.linea_id : undefined,
+          cotizacion_numero: l.cotizacion_numero ?? undefined,
+          monto_cotizacion: String(native),
           valor_tercero: esTercero,
           proveedor_id: l.proveedor_id || "", proveedor_display: l.proveedor_display || "",
         };
       });
     if (nuevas.length === 0) { setCargarError("Selecciona al menos una línea con monto"); return; }
     setLineas(nuevas);
-    setCotizacionId(cotSelId);
-    setCotizacionNumero(cotOpts.find(c => c.id === cotSelId)?.numero ?? "");
+    setOperacionId(cotSelId);
+    setOperacionNumero(cotOpts.find(c => c.id === cotSelId)?.numero ?? "");
+    // La cotización solo se conserva si TODAS las líneas salieron de una sola
+    // (mismo criterio del backend); con conceptos propios o varias, queda vacía.
+    const nums = [...new Set(nuevas.map(l => l.cotizacion_numero).filter(Boolean))] as string[];
+    const hayPropios = nuevas.some(l => l.operacion_concepto_id);
+    setCotizacionId("");
+    setCotizacionNumero(nums.length === 1 && !hayPropios ? nums[0] : "");
     setCargarOpen(false);
     sugerirRetenciones(nuevas);
   }
@@ -450,6 +477,7 @@ function Modal({
       precio_unitario: parseFloat(l.precio_unitario) || 0,
       subtotal: parseFloat(l.subtotal) || 0, total: parseFloat(l.total) || 0,
       cotizacion_linea_id: l.cotizacion_linea_id || null,
+      operacion_concepto_id: l.operacion_concepto_id || null,
       valor_tercero: l.valor_tercero,
     }));
     try {
@@ -478,6 +506,8 @@ function Modal({
       cuenta_ingreso_display: l.cuenta_ingreso_codigo ? `${l.cuenta_ingreso_codigo} ${l.cuenta_ingreso_nombre ?? ""}` : "",
       centro_costo_id: l.centro_costo_id ?? "",
       cotizacion_linea_id: l.cotizacion_linea_id ?? undefined,
+      operacion_concepto_id: l.operacion_concepto_id ?? undefined,
+      cotizacion_numero: l.cotizacion_numero ?? undefined,
       monto_cotizacion: l.monto_cotizacion ?? undefined,
       valor_tercero: l.valor_tercero ?? false,
       proveedor_id: l.proveedor_id ?? "",
@@ -611,6 +641,7 @@ function Modal({
     return {
       fecha, fecha_vencimiento: fechaVenc,
       cliente_id: clienteId,
+      operacion_id: operacionId || null,
       cotizacion_id: cotizacionId || null,
       moneda_id: monedaId,
       trm: esExtranjera && trm ? trm : null,
@@ -628,6 +659,7 @@ function Modal({
         cuenta_ingreso_id: l.cuenta_ingreso_id || null,
         centro_costo_id: l.centro_costo_id || null,
         cotizacion_linea_id: l.cotizacion_linea_id || null,
+        operacion_concepto_id: l.operacion_concepto_id || null,
         monto_cotizacion: l.monto_cotizacion || null,
         valor_tercero: l.valor_tercero,
         proveedor_id: l.valor_tercero ? (l.proveedor_id || null) : null,
@@ -845,15 +877,17 @@ function Modal({
           <div className="flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                Líneas{cotizacionNumero && <span className="ml-2 text-[10px] text-emerald-700 font-semibold normal-case">· Cotización {cotizacionNumero}</span>}
+                Líneas
+                {operacionNumero && <span className="ml-2 text-[10px] text-indigo-700 font-semibold normal-case">· Operación {operacionNumero}</span>}
+                {cotizacionNumero && <span className="ml-2 text-[10px] text-emerald-700 font-semibold normal-case">· Cotización {cotizacionNumero}</span>}
               </span>
               {!soloLectura && (
                 <div className="flex items-center gap-3">
-                  <button type="button" onClick={abrirCargarCotizacion}
+                  <button type="button" onClick={abrirCargarOperacion}
                     className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold">
-                    Cargar desde cotización
+                    Cargar desde operación
                   </button>
-                  {!cotizacionId && (
+                  {!origenOperacion && (
                     <button type="button" onClick={() => setLineas(p => [...p, lineaVacia()])}
                       className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">
                       + Agregar línea
@@ -866,7 +900,7 @@ function Modal({
               <table className="w-full min-w-[680px] text-[11px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 font-semibold text-[10px] uppercase tracking-wide">
-                    {cotizacionId ? (
+                    {origenOperacion ? (
                       <th className="px-2 py-2 text-center" colSpan={2} style={{ width: "44%" }}>Concepto</th>
                     ) : (
                       <>
@@ -885,7 +919,7 @@ function Modal({
                     <Fragment key={l._key}>
                       {/* Fila 1 — comercial */}
                       <tr className="border-t border-gray-200 align-middle">
-                        {cotizacionId ? (
+                        {origenOperacion ? (
                           <td colSpan={2} className="px-2 pt-2 pb-0.5">
                             {soloLectura
                               ? <span className="text-gray-800">{l.descripcion}</span>
@@ -1233,12 +1267,14 @@ function Modal({
       {cargarOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl p-6 max-h-[90vh] flex flex-col">
-            <h3 className="text-[14px] font-semibold text-gray-800 mb-1">Cargar desde cotización</h3>
-            <p className="text-[11px] text-gray-400 mb-3">Cotizaciones del cliente seleccionado. Elige una y los conceptos a facturar.</p>
+            <h3 className="text-[14px] font-semibold text-gray-800 mb-1">Cargar desde operación</h3>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Operaciones del cliente seleccionado. Entra lo confirmado de sus cotizaciones y los conceptos propios de la operación.
+            </p>
             <div className="mb-3">
-              <label className={lbl}>Cotización</label>
-              <select value={cotSelId} onChange={e => e.target.value && seleccionarCotizacion(e.target.value)} className={inp}>
-                <option value="">Selecciona una cotización…</option>
+              <label className={lbl}>Operación</label>
+              <select value={cotSelId} onChange={e => e.target.value && seleccionarOperacion(e.target.value)} className={inp}>
+                <option value="">Selecciona una operación…</option>
                 {cotOpts.map(c => <option key={c.id} value={c.id}>{c.numero}</option>)}
               </select>
             </div>
@@ -1256,6 +1292,7 @@ function Modal({
                             onChange={e => { const v = e.target.checked; setCotMontos(p => { const n = { ...p }; cotFactLineas.forEach(l => { n[l.linea_id] = { ...n[l.linea_id], incluir: v }; }); return n; }); }}
                             className="accent-blue-600" />
                         </th>
+                        <th className="px-2 py-1.5 w-28">Cotización</th>
                         <th className="px-2 py-1.5">Concepto</th>
                         <th className="px-2 py-1.5 text-right">Pendiente</th>
                         <th className="px-2 py-1.5 text-right w-44">Monto a facturar</th>
@@ -1268,6 +1305,11 @@ function Modal({
                             <input type="checkbox" checked={cotMontos[l.linea_id]?.incluir ?? false}
                               onChange={e => setCotMontos(p => ({ ...p, [l.linea_id]: { ...p[l.linea_id], incluir: e.target.checked } }))}
                               className="accent-blue-600" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            {l.cotizacion_numero
+                              ? <span className="font-mono text-[10px] text-blue-700">{l.cotizacion_numero}</span>
+                              : <span className="text-[9px] uppercase font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">Operación</span>}
                           </td>
                           <td className="px-2 py-1.5 text-gray-700">
                             {l.descripcion}
@@ -1485,6 +1527,9 @@ export default function FacturasPage() {
                         className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors">
                         {d.numero}
                       </button>
+                      {d.operacion_numero && (
+                        <div className="text-[10px] font-mono text-gray-400" title="Operación">{d.operacion_numero}</div>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{d.fecha}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">

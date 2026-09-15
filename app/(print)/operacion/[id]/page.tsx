@@ -11,6 +11,10 @@ interface HojaCotizacion {
   cotizado_cop: string; confirmado_cop: string; facturado_cop: string; pendiente_cop: string;
   estado_facturacion: string; lineas_total: number; lineas_confirmadas: number; opcionales: number;
 }
+interface HojaConceptoPropio {
+  descripcion: string; cliente_nombre: string; moneda: string;
+  venta_cop: string; costo_cop: string; facturado_cop: string; pendiente_cop: string;
+}
 interface HojaFactura {
   numero: string; fecha: string; cliente_nombre: string; moneda: string;
   total: string; total_cop: string; estado: string; dian_estado: string | null;
@@ -34,6 +38,7 @@ interface Hoja {
   aerolinea: string | null; ruta: string | null;
   piezas_total: number | null; peso_kg_total: string | null; clientes: string[];
   cotizaciones: HojaCotizacion[];
+  conceptos_propios: HojaConceptoPropio[];
   total_cotizado_cop: string; total_confirmado_cop: string;
   total_facturado_cop: string; total_pendiente_cop: string;
   facturas: HojaFactura[];
@@ -195,6 +200,20 @@ export default function HojaOperacionPage() {
                       </td>
                       <td style={num}>{fmt(c.cotizado_cop)}</td>
                       <td style={{ ...num, fontWeight: 700 }}>{fmt(c.confirmado_cop)}</td>
+                      <td style={num}>{fmt(c.facturado_cop)}</td>
+                      <td style={{ ...num, color: parseFloat(c.pendiente_cop) > 0 ? "#a16207" : s.light }}>{fmt(c.pendiente_cop)}</td>
+                    </tr>
+                  ))}
+                  {(h.conceptos_propios ?? []).map((c, i) => (
+                    <tr key={`propio-${i}`}>
+                      <td style={{ ...td, fontSize: 8, color: "#4338ca", fontWeight: 700 }}>
+                        OPERACIÓN
+                        <div style={{ fontFamily: "system-ui", fontWeight: 400, color: s.mid, fontSize: 8 }}>{c.descripcion}</div>
+                      </td>
+                      <td style={{ ...td, color: s.mid }}>{c.cliente_nombre}</td>
+                      <td style={{ ...td, textAlign: "center", fontSize: 8, color: "#166534" }}>directo</td>
+                      <td style={{ ...num, color: s.light }}>—</td>
+                      <td style={{ ...num, fontWeight: 700 }}>{fmt(c.venta_cop)}</td>
                       <td style={num}>{fmt(c.facturado_cop)}</td>
                       <td style={{ ...num, color: parseFloat(c.pendiente_cop) > 0 ? "#a16207" : s.light }}>{fmt(c.pendiente_cop)}</td>
                     </tr>
