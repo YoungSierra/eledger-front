@@ -9,7 +9,17 @@ import { AvisoTrmFaltante } from "@/components/AvisoTrmFaltante";
 
 interface Tercero    { id: string; nit: string; razon_social: string; }
 interface Aerolinea  { id: string; codigo_iata: string; nombre: string; }
-interface Concepto   { id: string; nombre: string; seccion: string; tipo_calculo: string; moneda: string; es_valor_tercero?: boolean; }
+interface Concepto   { id: string; nombre: string; seccion: string; tipo_calculo: string; moneda: string; es_valor_tercero?: boolean;
+                       tipo_operacion?: string | null; modalidad?: string | null; }
+
+// El módulo cotiza solo aéreo por ahora; la cabecera no expone la modalidad.
+const MODALIDAD_COT = "AEREA";
+
+// Clasificador del concepto: NULL = se ofrece en todas las cotizaciones.
+function conceptoAplica(c: Concepto, tipoOperacion: string, modalidad: string): boolean {
+  return (!c.tipo_operacion || c.tipo_operacion === tipoOperacion)
+      && (!c.modalidad || c.modalidad === modalidad);
+}
 
 interface Linea {
   id?: string;
@@ -686,7 +696,7 @@ export default function CotizacionForm({ id }: { id: string }) {
       cliente_id: clienteId,
       fecha, fecha_vigencia: vigencia,
       tipo_operacion: tipoOp,
-      modalidad: "AEREA",
+      modalidad: MODALIDAD_COT,
       origen, destino,
       aerolinea_id: aerolineaId || null,
       incoterm: incoterm || null,
@@ -1447,7 +1457,8 @@ export default function CotizacionForm({ id }: { id: string }) {
           monedaMercancia={monedaMercancia}
           trm={trmN}
           pesoKg={parseFloat(pesoKg) || 0}
-          conceptos={conceptos}
+          // La línea que se edita conserva su concepto aunque ya no aplique.
+          conceptos={conceptos.filter((c) => conceptoAplica(c, tipoOp, MODALIDAD_COT) || c.id === lineaModal.linea?.concepto_id)}
           onGuardar={onGuardarLinea}
           onCerrar={() => setLineaModal(null)}
         />

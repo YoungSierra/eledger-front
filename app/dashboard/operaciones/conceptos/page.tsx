@@ -10,6 +10,8 @@ interface Concepto {
   id: string; nombre: string; seccion: string;
   tipo_calculo: "POR_KG" | "POR_EMBARQUE" | "PORCENTAJE";
   moneda: "USD" | "COP"; activo: boolean;
+  tipo_operacion: "IMPORTACION" | "EXPORTACION" | null;
+  modalidad: "AEREA" | "MARITIMA" | "TERRESTRE" | null;
   cuenta_ingreso_id: string | null; cuenta_ingreso_nombre: string | null;
   cuenta_devolucion_venta_id: string | null; cuenta_devolucion_venta_nombre: string | null;
   tarifa_iva_id: string | null; tarifa_iva_nombre: string | null;
@@ -45,6 +47,17 @@ const TIPO_LABEL: Record<TipoCalculo, string> = {
   PORCENTAJE:   "% sobre CIF",
 };
 
+// Clasificador: en qué cotizaciones se ofrece el concepto. Vacío = en todas.
+const TIPO_OP_LABEL: Record<string, string> = { IMPORTACION: "Importación", EXPORTACION: "Exportación" };
+const MODALIDAD_LABEL: Record<string, string> = { AEREA: "Aérea", MARITIMA: "Marítima", TERRESTRE: "Terrestre" };
+const SIN_CLASIFICAR = "__NULL";
+
+function aplicaA(c: Concepto): string {
+  if (!c.tipo_operacion && !c.modalidad) return "Todas";
+  return [c.tipo_operacion ? TIPO_OP_LABEL[c.tipo_operacion] : "Imp./Exp.",
+          c.modalidad ? MODALIDAD_LABEL[c.modalidad] : "todas las modalidades"].join(" · ");
+}
+
 const lbl = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
@@ -56,8 +69,8 @@ const TIPO_RET_COLOR: Record<string, string> = {
 
 interface Retencion { id: string; tipo: string; nombre: string; porcentaje: string; aplica_venta: boolean; }
 
-interface Form { nombre: string; seccion: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; cuenta_devolucion_venta_id: string; tarifa_iva_id: string; um_id: string; es_valor_tercero: boolean; retenciones_ids: string[]; }
-const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", cuenta_devolucion_venta_id: "", tarifa_iva_id: "", um_id: "", es_valor_tercero: false, retenciones_ids: [] };
+interface Form { nombre: string; seccion: string; tipo_operacion: string; modalidad: string; tipo_calculo: TipoCalculo; moneda: Moneda; cuenta_ingreso_id: string; cuenta_devolucion_venta_id: string; tarifa_iva_id: string; um_id: string; es_valor_tercero: boolean; retenciones_ids: string[]; }
+const FORM_VACIO: Form = { nombre: "", seccion: "TRANSPORTE_INTERNACIONAL", tipo_operacion: "", modalidad: "", tipo_calculo: "POR_KG", moneda: "USD", cuenta_ingreso_id: "", cuenta_devolucion_venta_id: "", tarifa_iva_id: "", um_id: "", es_valor_tercero: false, retenciones_ids: [] };
 
 function CuentaSearch({ label, cuentaDisplay, onChange }: {
   label: string; cuentaDisplay: string; onChange: (id: string) => void;
@@ -110,6 +123,8 @@ export default function ConceptosPage() {
   const [soloActivos, setSoloActivos] = useState(true);
   const [busqueda, setBusqueda]       = useState("");
   const [filtroSeccion, setFiltroSeccion] = useState("");
+  const [filtroTipoOp, setFiltroTipoOp]   = useState("");
+  const [filtroModalidad, setFiltroModalidad] = useState("");
   const [drawer, setDrawer]           = useState<"crear" | "editar" | null>(null);
   const [sel, setSel]                 = useState<Concepto | null>(null);
   const [form, setForm]               = useState<Form>(FORM_VACIO);
@@ -122,7 +137,7 @@ export default function ConceptosPage() {
   const [cuentaDevNombre, setCuentaDevNombre] = useState("");
   const [pagina, setPagina]           = useState(1);
   const porPagina                     = 20;
-  const { orden, alternar } = useOrden<"seccion" | "concepto" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
+  const { orden, alternar } = useOrden<"seccion" | "concepto" | "aplica" | "tipo" | "moneda" | "estado">("seccion", "asc", () => setPagina(1));
 
   useEffect(() => { cargar(); }, [soloActivos]);
   useEffect(() => {
@@ -143,7 +158,8 @@ export default function ConceptosPage() {
 
   function abrirEditar(c: Concepto) {
     setSel(c);
-    setForm({ nombre: c.nombre, seccion: c.seccion, tipo_calculo: c.tipo_calculo, moneda: c.moneda,
+    setForm({ nombre: c.nombre, seccion: c.seccion,
+      tipo_operacion: c.tipo_operacion ?? "", modalidad: c.modalidad ?? "", tipo_calculo: c.tipo_calculo, moneda: c.moneda,
       cuenta_ingreso_id: c.cuenta_ingreso_id ?? "", cuenta_devolucion_venta_id: c.cuenta_devolucion_venta_id ?? "",
       tarifa_iva_id: c.tarifa_iva_id ?? "", um_id: c.um_id ?? "",
       retenciones_ids: c.retenciones_ids ?? [],
@@ -156,7 +172,7 @@ export default function ConceptosPage() {
   async function guardar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError("");
     try {
-      const payload = { ...form, retenciones_ids: form.es_valor_tercero ? [] : form.retenciones_ids, cuenta_ingreso_id: form.cuenta_ingreso_id || null, cuenta_devolucion_venta_id: form.cuenta_devolucion_venta_id || null, tarifa_iva_id: form.tarifa_iva_id || null, um_id: form.um_id || null };
+      const payload = { ...form, tipo_operacion: form.tipo_operacion || null, modalidad: form.modalidad || null, retenciones_ids: form.es_valor_tercero ? [] : form.retenciones_ids, cuenta_ingreso_id: form.cuenta_ingreso_id || null, cuenta_devolucion_venta_id: form.cuenta_devolucion_venta_id || null, tarifa_iva_id: form.tarifa_iva_id || null, um_id: form.um_id || null };
       if (drawer === "crear") {
         await apiFetch("/operaciones/conceptos", { method: "POST", body: JSON.stringify(payload) });
       } else {
@@ -177,7 +193,9 @@ export default function ConceptosPage() {
     .filter((c) => {
       const matchBusqueda = !busqueda.trim() || c.nombre.toLowerCase().includes(busqueda.toLowerCase());
       const matchSeccion  = !filtroSeccion || c.seccion === filtroSeccion;
-      return matchBusqueda && matchSeccion;
+      const matchTipoOp   = !filtroTipoOp || (filtroTipoOp === SIN_CLASIFICAR ? !c.tipo_operacion : c.tipo_operacion === filtroTipoOp);
+      const matchModal    = !filtroModalidad || (filtroModalidad === SIN_CLASIFICAR ? !c.modalidad : c.modalidad === filtroModalidad);
+      return matchBusqueda && matchSeccion && matchTipoOp && matchModal;
     })
     .sort((a, b) => SECCIONES.indexOf(a.seccion) - SECCIONES.indexOf(b.seccion));
 
@@ -187,6 +205,7 @@ export default function ConceptosPage() {
   const ordenada = ordenarFilas(conceptosFiltrados, orden, {
     seccion:  (c) => SECCIONES.indexOf(c.seccion),
     concepto: (c) => c.nombre,
+    aplica:   (c) => aplicaA(c),
     tipo:     (c) => TIPO_LABEL[c.tipo_calculo],
     moneda:   (c) => c.moneda,
     estado:   (c) => (c.activo ? 1 : 0),
@@ -213,7 +232,7 @@ export default function ConceptosPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 mb-4 shrink-0 max-w-5xl">
+      <div className="flex gap-2 mb-4 shrink-0 max-w-7xl">
         <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
@@ -225,6 +244,18 @@ export default function ConceptosPage() {
           <option value="">Todas las secciones</option>
           {SECCIONES.map((s) => <option key={s} value={s}>{SECCION_LABEL[s]}</option>)}
         </select>
+        <select value={filtroTipoOp} onChange={(e) => { setFiltroTipoOp(e.target.value); setPagina(1); }}
+          className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <option value="">Imp. y exp.</option>
+          {Object.entries(TIPO_OP_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value={SIN_CLASIFICAR}>Sin clasificar</option>
+        </select>
+        <select value={filtroModalidad} onChange={(e) => { setFiltroModalidad(e.target.value); setPagina(1); }}
+          className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-[12px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <option value="">Todas las modalidades</option>
+          {Object.entries(MODALIDAD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value={SIN_CLASIFICAR}>Sin clasificar</option>
+        </select>
         <label className="flex items-center gap-1.5 text-[12px] text-gray-500 cursor-pointer select-none">
           <input type="checkbox" checked={soloActivos} onChange={(e) => { setSoloActivos(e.target.checked); setPagina(1); }}
             className="w-3.5 h-3.5 accent-blue-600" />
@@ -233,13 +264,14 @@ export default function ConceptosPage() {
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 min-h-0 max-w-5xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex-1 min-h-0 max-w-7xl bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[760px]">
+          <table className="w-full min-w-[880px]">
             <thead className="sticky top-0 bg-gray-50/70 z-10">
               <tr className="border-b border-gray-100">
                 <Th campo="seccion"  orden={orden} alternar={alternar}>Sección</Th>
                 <Th campo="concepto" orden={orden} alternar={alternar}>Concepto</Th>
+                <Th campo="aplica"   orden={orden} alternar={alternar}>Aplica a</Th>
                 <Th campo="tipo"     orden={orden} alternar={alternar}>Tipo cálculo</Th>
                 <Th campo="moneda"   orden={orden} alternar={alternar}>Moneda</Th>
                 <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wide text-gray-400">UM</th>
@@ -250,8 +282,8 @@ export default function ConceptosPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filas.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-gray-400">
-                  {busqueda || filtroSeccion ? "Sin resultados para los filtros aplicados" : "Sin conceptos registrados"}
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-[12px] text-gray-400">
+                  {busqueda || filtroSeccion || filtroTipoOp || filtroModalidad ? "Sin resultados para los filtros aplicados" : "Sin conceptos registrados"}
                 </td></tr>
               ) : filas.map((c) => (
                 <tr key={c.id} className={`hover:bg-blue-50/30 transition-colors ${!c.activo ? "opacity-40" : ""}`}>
@@ -263,6 +295,7 @@ export default function ConceptosPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-[12px] text-gray-800 font-medium">{c.nombre}</td>
+                  <td className={`px-4 py-3 text-[11px] ${c.tipo_operacion || c.modalidad ? "text-gray-600" : "text-gray-300"}`}>{aplicaA(c)}</td>
                   <td className="px-4 py-3 text-[11px] text-gray-500">{TIPO_LABEL[c.tipo_calculo]}</td>
                   <td className="px-4 py-3">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${c.moneda === "USD" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"}`}>
@@ -342,6 +375,25 @@ export default function ConceptosPage() {
                 <select value={form.seccion} onChange={(e) => setForm(p => ({ ...p, seccion: e.target.value }))} className={inp}>
                   {SECCIONES.map((s) => <option key={s} value={s}>{SECCION_LABEL[s]}</option>)}
                 </select>
+              </div>
+              <div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={lbl}>Tipo de operación</label>
+                    <select value={form.tipo_operacion} onChange={(e) => setForm(p => ({ ...p, tipo_operacion: e.target.value }))} className={inp}>
+                      <option value="">Importación y exportación</option>
+                      {Object.entries(TIPO_OP_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={lbl}>Modalidad</label>
+                    <select value={form.modalidad} onChange={(e) => setForm(p => ({ ...p, modalidad: e.target.value }))} className={inp}>
+                      <option value="">Todas</option>
+                      {Object.entries(MODALIDAD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">El concepto solo se ofrece en las cotizaciones que coincidan.</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

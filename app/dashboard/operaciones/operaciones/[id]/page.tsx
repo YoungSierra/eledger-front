@@ -130,6 +130,7 @@ interface ConceptoPropio {
 interface ConceptoCatalogo {
   id: string; nombre: string; seccion: string; moneda: string;
   cuenta_ingreso_id: string | null; es_valor_tercero: boolean; activo: boolean;
+  tipo_operacion: string | null; modalidad: string | null;
 }
 
 // Una línea facturable de la operación: viene de una cotización o es propia.
@@ -1200,7 +1201,11 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                     }));
                   }}>
                   <option value="">{conceptoForm.seccion ? "Selecciona…" : "Elige primero la sección"}</option>
-                  {catConceptos.filter((c) => c.seccion === conceptoForm.seccion).map((c) => (
+                  {/* Clasificador: NULL = aplica a todas. El módulo opera solo aéreo. */}
+                  {catConceptos.filter((c) => c.seccion === conceptoForm.seccion
+                    && (!c.tipo_operacion || !cotizacion || c.tipo_operacion === cotizacion.tipo_operacion)
+                    && (!c.modalidad || c.modalidad === "AEREA")
+                    || c.id === conceptoForm.concepto_id).map((c) => (
                     <option key={c.id} value={c.id}>{c.nombre}</option>
                   ))}
                 </select>
