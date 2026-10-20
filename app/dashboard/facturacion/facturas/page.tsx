@@ -413,8 +413,9 @@ function Modal({
       const pend = data.lineas.filter(l => parseFloat(l.pendiente) > 0);
       setCotFactLineas(pend);
       // En factura manda la TRM del día; la de la operación no existe como tal.
-      const hoy = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
-      const tasa = hoy?.existe && hoy.tasa ? hoy.tasa : (data.trm_dia ?? "0");
+      const hoy = await apiFetch<{ existe: boolean; tasa: string | null; sugerida: string | null; ultima_tasa: string | null }>("/trm/hoy").catch(() => null);
+      // Sin TRM de hoy no se frena: sugerida del Banco de la República o la última registrada.
+      const tasa = (hoy?.existe ? hoy.tasa : (hoy?.sugerida ?? hoy?.ultima_tasa)) ?? (data.trm_dia ?? "0");
       setCotTrm(tasa); setTrmDia(tasa);
       const m: Record<string, { incluir: boolean; monto: string }> = {};
       pend.forEach(l => { m[l.linea_id] = { incluir: true, monto: l.pendiente }; });
@@ -841,9 +842,10 @@ function Modal({
                   setMonedaId(nueva);
                   const seleccionada = monedas.find(m => m.id === nueva);
                   if (seleccionada && !seleccionada.es_funcional) {
-                    const data = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
-                    if (data?.existe && data.tasa) { if (!trm) setTrm(parseFloat(data.tasa).toFixed(decimalesFuncional)); setTrmFaltante(false); }
-                    else setTrmFaltante(true);
+                    const data = await apiFetch<{ existe: boolean; tasa: string | null; sugerida: string | null; ultima_tasa: string | null }>("/trm/hoy").catch(() => null);
+                    const tasa = data?.existe ? data.tasa : (data?.sugerida ?? data?.ultima_tasa);
+                    if (tasa && !trm) setTrm(parseFloat(tasa).toFixed(decimalesFuncional));
+                    setTrmFaltante(!data?.existe);
                   } else {
                     setTrmFaltante(false);
                   }
@@ -868,7 +870,7 @@ function Modal({
             <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               <svg className="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               <p className="text-[11px] text-amber-700">
-                No hay TRM registrada para hoy. No es posible facturar en moneda extranjera hasta que el administrador la registre. Puedes cambiar a COP o volver más tarde.
+                Aún no se registra la TRM de hoy. Se precargó la sugerida o la última registrada; verifícala antes de guardar.
               </p>
             </div>
           )}
@@ -1243,11 +1245,11 @@ function Modal({
             </button>
             {!soloLectura && (
               <>
-                <button onClick={guardar} disabled={saving || trmFaltante}
+                <button onClick={guardar} disabled={saving}
                   className="px-3 py-1.5 text-[12px] font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
                   {saving ? "Guardando…" : "Guardar borrador"}
                 </button>
-                <button onClick={contabilizar} disabled={saving || trmFaltante}
+                <button onClick={contabilizar} disabled={saving}
                   className="px-3 py-1.5 text-[12px] font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
                   {saving ? "Procesando…" : "Guardar y contabilizar"}
                 </button>

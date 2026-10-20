@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { AvisoTrmFaltante } from "@/components/AvisoTrmFaltante";
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -513,8 +512,8 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [monedaMercancia, setMonedaMercancia] = useState("USD");
   const [valorCif, setValorCif]           = useState("");
   const [trm, setTrm]                 = useState("");
-  const [trmFaltante, setTrmFaltante] = useState(false);
-  const [trmChecking, setTrmChecking] = useState(id === "nueva");
+  // Aviso (no bloqueo): sin TRM del día se precarga la sugerida o la última registrada.
+  const [trmAviso, setTrmAviso]       = useState("");
   const [notas, setNotas]             = useState(
     "Sujeto a disponibilidad de espacios\n" +
     "Los gastos de puerto son aprox, los mismos se facturan contra soporte de puerto\n" +
@@ -595,12 +594,18 @@ export default function CotizacionForm({ id }: { id: string }) {
 
   async function cargarTrm() {
     try {
-      const data = await apiFetch<{ existe: boolean; tasa: string | null }>("/trm/hoy").catch(() => null);
-      if (data?.existe && data.tasa) setTrm(parseFloat(data.tasa).toFixed(2));
-      // La cotización nueva requiere la TRM del día para precargar/calcular.
-      if (isNueva && !data?.existe) setTrmFaltante(true);
+      const data = await apiFetch<{ existe: boolean; tasa: string | null; sugerida: string | null;
+        ultima_tasa: string | null; ultima_fecha: string | null }>("/trm/hoy").catch(() => null);
+      if (data?.existe && data.tasa) { setTrm(parseFloat(data.tasa).toFixed(2)); return; }
+      if (!isNueva) return;
+      const respaldo = data?.sugerida ?? data?.ultima_tasa;
+      if (respaldo) setTrm(parseFloat(respaldo).toFixed(2));
+      setTrmAviso(data?.sugerida
+        ? "Aún no se registra la TRM de hoy. Se precargó la publicada por el Banco de la República; verifícala."
+        : data?.ultima_tasa
+          ? `Aún no se registra la TRM de hoy. Se precargó la última registrada (${data.ultima_fecha}); verifícala.`
+          : "Aún no se registra la TRM de hoy. Escríbela para calcular la cotización.");
     } catch {}
-    finally { setTrmChecking(false); }
   }
 
   async function cargarCotizacion() {
@@ -866,25 +871,6 @@ export default function CotizacionForm({ id }: { id: string }) {
     }
   }
 
-  if (isNueva && (trmChecking || trmFaltante)) {
-    return (
-      <div className="flex flex-col" style={{ height: "calc(100vh - 88px)" }}>
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-200 shrink-0">
-          <button onClick={() => router.push("/dashboard/operaciones/cotizaciones")}
-            className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 transition-colors">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-            Cotizaciones
-          </button>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          {trmChecking
-            ? <span className="text-[12px] text-gray-400">Verificando TRM del día…</span>
-            : <AvisoTrmFaltante onVolver={() => router.push("/dashboard/operaciones/cotizaciones")} />}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 88px)" }}>
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
@@ -1079,6 +1065,9 @@ export default function CotizacionForm({ id }: { id: string }) {
                   disabled={!editable && !isNueva} className={inputCls} placeholder="0.00" />
               </div>
             </div>
+            {trmAviso && (
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">{trmAviso}</p>
+            )}
 
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">

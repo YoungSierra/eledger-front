@@ -597,8 +597,13 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
     const hoy = new Date().toISOString().slice(0, 10);
     const venc = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
     setFactFecha(hoy); setFactVenc(venc); setFactMoneda("COP"); setFactTrm("");
-    apiFetch<{ existe: boolean; tasa?: string }>("/trm/hoy")
-      .then((d) => { setTrmHoyExiste(!!d?.existe); if (d?.tasa) setFactTrm(String(d.tasa)); })
+    apiFetch<{ existe: boolean; tasa?: string; sugerida?: string | null; ultima_tasa?: string | null }>("/trm/hoy")
+      .then((d) => {
+        setTrmHoyExiste(!!d?.existe);
+        // Sin TRM de hoy se precarga la sugerida o la última registrada; el usuario la verifica.
+        const tasa = d?.existe ? d.tasa : (d?.sugerida ?? d?.ultima_tasa);
+        if (tasa) setFactTrm(String(tasa));
+      })
       .catch(() => setTrmHoyExiste(true));
     // Sin cliente explícito se arranca con el primero: la factura es de uno solo.
     const data = await cargarFacturables(clienteId ?? "");
@@ -1131,13 +1136,13 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 </table>
               )}
             </div>
-            {factMoneda === "USD" && parseFloat(factTrm || "0") <= 0 && (
+            {factMoneda === "USD" && (parseFloat(factTrm || "0") <= 0 || !trmHoyExiste) && (
               <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 <svg className="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <p className="text-[11px] text-amber-700">
-                  {trmHoyExiste
+                  {parseFloat(factTrm || "0") <= 0
                     ? "Escribe la TRM que aplica a esta factura para poder facturar en USD."
-                    : "No hay TRM registrada para hoy. Escríbela aquí o pídele al administrador que la registre."}
+                    : "Aún no se registra la TRM de hoy. Se precargó la sugerida o la última registrada; verifícala antes de generar."}
                 </p>
               </div>
             )}
