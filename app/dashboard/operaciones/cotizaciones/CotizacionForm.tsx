@@ -647,7 +647,7 @@ export default function CotizacionForm({ id }: { id: string }) {
   }
 
   async function buscarClientes(q: string) {
-    const data = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(q)}&tipo_tercero=CLIENTE`);
+    const data = await apiFetch<Tercero[]>(`/terceros?busqueda=${encodeURIComponent(q)}&tipo_tercero=CLIENTE&mis_clientes=true`);
     return data.map((t) => ({ id: t.id, label: `${t.nit} — ${t.razon_social}` }));
   }
 
