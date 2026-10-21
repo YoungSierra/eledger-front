@@ -810,10 +810,232 @@ const OPERACIONES: ModuloAyuda = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MÓDULO: FACTURACIÓN
+// Orden de los temas = orden del menú:
+//   Facturas de venta · Devoluciones · Factura electrónica · Resoluciones DIAN
+// ═══════════════════════════════════════════════════════════════════════════
+
+const FACTURACION: ModuloAyuda = {
+  codigo: "facturacion",
+  nombre: "Facturación",
+  descripcion:
+    "La venta al cliente: se factura (normalmente desde la operación), se contabiliza, se transmite a la DIAN y, si hace falta, se devuelve con nota crédito.",
+  temas: [
+    // ── Introducción (no es opción del menú; abre el manual) ──────────────
+    {
+      id: "fac.intro",
+      titulo: "Introducción",
+      resumen: "De la factura en borrador a la aceptación de la DIAN.",
+      bloques: [
+        {
+          tipo: "pasos",
+          items: [
+            "Se crea la factura: a mano o con «Cargar desde operación» (lo confirmado por operaciones).",
+            "Se guarda en borrador para revisarla, o se contabiliza de una vez.",
+            "Al contabilizar nace el asiento y la cuenta por cobrar del cliente.",
+            "Se transmite a la DIAN desde la factura o desde Factura electrónica.",
+            "Si el cliente devuelve, se hace la nota crédito en Devoluciones; si la factura está mal, se anula.",
+          ],
+        },
+        { tipo: "subtitulo", texto: "Antes de empezar" },
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Resolución DIAN", desc: "Vigente y con rango disponible; sin ella no se numera la factura." },
+            { campo: "Período contable", desc: "Abierto para la fecha de la factura." },
+            { campo: "Parámetros CxC", desc: "Cuenta de clientes y de valores para terceros (Administración)." },
+            { campo: "TRM del día", desc: "Para facturar en moneda extranjera." },
+          ],
+        },
+      ],
+    },
+
+    // ── 1. Facturas de venta ──────────────────────────────────────────────
+    {
+      id: "fac.facturas",
+      titulo: "Facturas de venta",
+      ruta: "/dashboard/facturacion/facturas",
+      resumen: "Crear, contabilizar, anular e imprimir facturas a clientes.",
+      captura: "/ayuda/fac.facturas.png",
+      bloques: [
+        {
+          tipo: "parrafo",
+          texto:
+            "Lista filtrable por estado, fechas (por defecto, el último mes) y cliente. El vencimiento se marca en rojo si está vencida y en ámbar si vence en 5 días o menos. El número o el ícono de cada fila abre la factura.",
+        },
+        { tipo: "subtitulo", texto: "Encabezado" },
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Cliente", desc: "Solo terceros activos de tipo cliente." },
+            { campo: "Condición de pago", desc: "Calcula el vencimiento; con «Fecha manual» lo escribes tú." },
+            { campo: "Moneda y TRM", desc: "En moneda extranjera se precarga la TRM del día (o la sugerida/última, con aviso). Editable." },
+          ],
+        },
+        { tipo: "subtitulo", texto: "Líneas" },
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Producto o descripción", desc: "Con producto se llenan la UM y la cuenta de ingreso." },
+            { campo: "Cantidad, precio y desc. %", desc: "El subtotal, IVA y total se calculan solos." },
+            { campo: "IVA y centro de costo", desc: "Si la cuenta exige centro de costo, es obligatorio." },
+            { campo: "Cta. ingresos", desc: "Obligatoria en líneas sin producto." },
+            { campo: "Valor recibido para tercero", desc: "Dinero que se cobra por cuenta de otro (aduana, bodega): pide el proveedor, va sin IVA ni retención y genera su documento en CxP." },
+          ],
+        },
+        { tipo: "subtitulo", texto: "Cargar desde operación" },
+        {
+          tipo: "pasos",
+          items: [
+            "Elige primero el cliente y pulsa «Cargar desde operación».",
+            "Selecciona la operación: aparece lo confirmado y aún no facturado.",
+            "Marca las líneas y ajusta el monto si facturas parcial; «Cargar líneas».",
+            "Se convierten a la moneda de la factura con la TRM y se sugieren las retenciones del cliente.",
+          ],
+        },
+        { tipo: "subtitulo", texto: "Retenciones y acciones" },
+        {
+          tipo: "lista",
+          items: [
+            "Retenciones del cliente: «+ Agregar retención» y elegir del catálogo. Una fila sin retención elegida se ignora.",
+            "Ver asiento: vista previa de la contabilización.",
+            "Guardar borrador / Guardar y contabilizar (abre el impreso).",
+            "Contabilizada: Imprimir, Transmitir a DIAN (o Consultar estado si quedó en proceso), XML/PDF (si quedaron archivados) y Anular con motivo.",
+          ],
+        },
+        {
+          tipo: "aviso",
+          texto:
+            "Anular crea el contraasiento y deja la cartera en cero. No se puede si ya hay recibos aplicados o si un valor para tercero ya se pagó: primero se reversa el pago.",
+        },
+        {
+          tipo: "nota",
+          texto:
+            "Desde operación solo se factura lo que operaciones confirmó y sin pasar lo pendiente. Una factura es de un solo cliente.",
+        },
+      ],
+    },
+
+    // ── 2. Devoluciones ───────────────────────────────────────────────────
+    {
+      id: "fac.devoluciones",
+      titulo: "Devoluciones",
+      ruta: "/dashboard/facturacion/devoluciones",
+      resumen: "Nota crédito sobre una factura contabilizada.",
+      captura: "/ayuda/fac.devoluciones.png",
+      bloques: [
+        {
+          tipo: "pasos",
+          items: [
+            "«Nueva devolución» y elige la factura (solo contabilizadas).",
+            "Escribe el motivo y, si aplica, el concepto DIAN.",
+            "En «A devolver» pon la cantidad de cada línea; las que quedan en 0 no entran.",
+            "Revisa con «Ver asiento» y pulsa «Guardar y contabilizar».",
+          ],
+        },
+        { tipo: "subtitulo", texto: "Qué hace al contabilizar" },
+        {
+          tipo: "lista",
+          items: [
+            "Rebaja el saldo de la factura en cartera con una nota crédito.",
+            "Reversa ingreso, IVA y retenciones en proporción a lo devuelto.",
+            "Productos: reingresan al inventario a su costo original. Conceptos: solo la nota crédito.",
+          ],
+        },
+        {
+          tipo: "aviso",
+          texto:
+            "Los valores para terceros no se devuelven por aquí. Para devolver todo, la cantidad es la facturada; no se puede pasar de lo pendiente.",
+        },
+        {
+          tipo: "nota",
+          texto:
+            "Anular la devolución restituye el saldo de la factura, reversa el asiento y saca de nuevo el producto del inventario.",
+        },
+      ],
+    },
+
+    // ── 3. Factura electrónica ────────────────────────────────────────────
+    {
+      id: "fac.electronica",
+      titulo: "Factura electrónica",
+      ruta: "/dashboard/facturacion/electronica",
+      resumen: "Seguimiento de la transmisión de las facturas a la DIAN.",
+      captura: "/ayuda/fac.electronica.png",
+      bloques: [
+        {
+          tipo: "parrafo",
+          texto:
+            "Muestra las facturas contabilizadas con su estado ante la DIAN; por defecto, las pendientes. El aviso de arriba dice si la integración está activa y en qué ambiente (en pruebas no afecta la DIAN real).",
+        },
+        { tipo: "subtitulo", texto: "Estados DIAN" },
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Pendiente", desc: "No se ha enviado, o el último intento falló por conexión o configuración." },
+            { campo: "Enviada", desc: "El proveedor la recibió y la DIAN aún no da resultado: usa «Consultar estado» (no se reenvía)." },
+            { campo: "Aceptada", desc: "Validada por la DIAN: queda con CUFE y el impreso lleva el código QR." },
+            { campo: "Rechazada", desc: "Muestra los errores; se corrige y se vuelve a transmitir." },
+          ],
+        },
+        {
+          tipo: "lista",
+          items: [
+            "Imprimir: sin CUFE el impreso advierte que no tiene validez fiscal.",
+            "Transmitir a la DIAN: para pendientes y rechazadas.",
+            "Consultar estado: para las enviadas; trae el resultado de la DIAN y, si fue aceptada, guarda el XML y el PDF.",
+          ],
+        },
+        {
+          tipo: "aviso",
+          texto:
+            "Si el botón de transmitir está deshabilitado, la integración no está activa: se configura en Administración → Facturación electrónica.",
+        },
+      ],
+    },
+
+    // ── 4. Resoluciones DIAN ──────────────────────────────────────────────
+    {
+      id: "fac.resoluciones",
+      titulo: "Resoluciones DIAN",
+      ruta: "/dashboard/facturacion/resoluciones",
+      resumen: "Rangos de numeración autorizados por la DIAN.",
+      captura: "/ayuda/fac.resoluciones.png",
+      bloques: [
+        {
+          tipo: "campos",
+          items: [
+            { campo: "Tipo", desc: "Factura de venta, nota crédito o nota débito." },
+            { campo: "Número de resolución", desc: "El que asignó la DIAN." },
+            { campo: "Prefijo", desc: "Opcional (p. ej. FE); va delante del número de la factura." },
+            { campo: "Rango desde / hasta", desc: "Números autorizados." },
+            { campo: "Fecha desde / hasta", desc: "Vigencia de la autorización." },
+          ],
+        },
+        {
+          tipo: "parrafo",
+          texto:
+            "Cada factura toma el siguiente número de la resolución activa y vigente para su fecha. Si hay varias vigentes, se usa primero la más antigua y, al agotarse, la siguiente. La tarjeta muestra el último número emitido, los disponibles y una barra de uso (ámbar desde 70 %, roja desde 90 %).",
+        },
+        {
+          tipo: "aviso",
+          texto:
+            "Con la resolución vencida o agotada no se puede crear la factura. Registra la nueva antes de que se acabe: la tarjeta avisa cuando quedan menos de 100 números.",
+        },
+        {
+          tipo: "nota",
+          texto: "Las resoluciones no se borran: se inactivan.",
+        },
+      ],
+    },
+  ],
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Registro de módulos (agregar aquí los demás módulos a medida que se escriban)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const MODULOS_AYUDA: ModuloAyuda[] = [ADMINISTRACION, OPERACIONES];
+export const MODULOS_AYUDA: ModuloAyuda[] = [ADMINISTRACION, OPERACIONES, FACTURACION];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

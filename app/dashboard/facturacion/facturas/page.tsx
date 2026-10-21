@@ -754,12 +754,18 @@ function Modal({
 
   const [transmitiendo, setTransmitiendo] = useState(false);
   const [dianMsg, setDianMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  // Estado DIAN vivo en el modal: tras transmitir o consultar cambia el botón.
+  const [dianEstado, setDianEstado] = useState(factura?.dian_estado ?? null);
+  const [numeroDian, setNumeroDian] = useState(factura?.numero_dian ?? null);
+  // Enviada y con número del PTH: está en proceso; se consulta, no se reenvía.
+  const enProceso = dianEstado === "enviada" && !!numeroDian;
   async function transmitirDian() {
     if (!factura) return;
     setTransmitiendo(true); setError(""); setDianMsg(null);
     try {
       const r = await apiFetch<{ ok: boolean; dian_estado: string; cufe: string | null; numero_dian: string | null; archivado: boolean; mensaje: string; errores: string[]; avisos: string[] }>(
-        `/facturacion/facturas/${factura.id}/transmitir`, { method: "POST" });
+        `/facturacion/facturas/${factura.id}/${enProceso ? "consultar-dian" : "transmitir"}`, { method: "POST" });
+      setDianEstado(r.dian_estado); setNumeroDian(r.numero_dian);
       const detalle = [r.mensaje, ...(r.errores ?? [])].filter(Boolean).join(" · ");
       const archivo = r.ok && !r.archivado && (r.avisos ?? []).length
         ? " · ⚠ No se pudo archivar el XML/PDF: " + r.avisos.join(" · ")
@@ -1219,11 +1225,11 @@ function Modal({
                 Imprimir
               </a>
             )}
-            {factura?.estado === "contabilizada" && !showAnular && (
+            {factura?.estado === "contabilizada" && !showAnular && dianEstado !== "aceptada" && (
               <button onClick={transmitirDian} disabled={transmitiendo}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
-                {transmitiendo ? "Transmitiendo…" : "Transmitir a DIAN"}
+                {transmitiendo ? (enProceso ? "Consultando…" : "Transmitiendo…") : (enProceso ? "Consultar estado DIAN" : "Transmitir a DIAN")}
               </button>
             )}
             {(archivado || factura?.xml_key || factura?.pdf_key) && !showAnular && (

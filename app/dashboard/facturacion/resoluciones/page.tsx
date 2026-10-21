@@ -33,8 +33,13 @@ const EMPTY = {
 };
 
 function pctUsado(r: Resolucion) {
+  // consecutivo_actual es el último número emitido (0 = ninguno), no un conteo.
   const total = r.rango_hasta - r.rango_desde + 1;
-  return total > 0 ? Math.round((r.consecutivo_actual / total) * 100) : 0;
+  return total > 0 ? Math.round(((total - r.disponibles) / total) * 100) : 0;
+}
+
+function ultimoEmitido(r: Resolucion) {
+  return r.consecutivo_actual >= r.rango_desde ? r.consecutivo_actual.toLocaleString("es-CO") : "Ninguno";
 }
 
 export default function ResolucionesPage() {
@@ -174,8 +179,8 @@ export default function ResolucionesPage() {
                     <p className="text-[12px] font-semibold text-gray-700">{r.rango_desde.toLocaleString("es-CO")} – {r.rango_hasta.toLocaleString("es-CO")}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Consecutivo actual</p>
-                    <p className="text-[12px] font-semibold text-gray-700">{(r.rango_desde + r.consecutivo_actual - 1).toLocaleString("es-CO")}</p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Último número emitido</p>
+                    <p className="text-[12px] font-semibold text-gray-700">{ultimoEmitido(r)}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Vigencia</p>
@@ -275,9 +280,9 @@ export default function ResolucionesPage() {
 
               {drawer === "editar" && editando && (
                 <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 mb-1">Consecutivo actual</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 mb-1">Último número emitido</p>
                   <p className="text-[13px] font-semibold text-blue-800">
-                    {(editando.rango_desde + editando.consecutivo_actual - 1).toLocaleString("es-CO")}
+                    {ultimoEmitido(editando)}
                     <span className="text-[11px] text-blue-400 ml-2">({editando.disponibles.toLocaleString("es-CO")} disponibles)</span>
                   </p>
                 </div>

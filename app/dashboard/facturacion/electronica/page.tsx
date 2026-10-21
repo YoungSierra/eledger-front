@@ -11,6 +11,7 @@ interface Item {
   cliente_nit: string | null; cliente_nombre: string | null;
   total: string; estado: string;
   dian_estado: string | null;
+  numero_dian: string | null;
 }
 
 interface ListResponse { items: Item[]; total: number; pagina: number; por_pagina: number; }
@@ -70,11 +71,13 @@ export default function FacturacionElectronicaPage() {
 
   const [transmitiendoId, setTransmitiendoId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
-  async function transmitir(id: string) {
+  // «consultar»: la que quedó enviada (en proceso) se pregunta al PTH en vez de
+  // reenviarse, que la duplicaría.
+  async function transmitir(id: string, accion: "transmitir" | "consultar-dian" = "transmitir") {
     setTransmitiendoId(id); setMsg(null);
     try {
       const r = await apiFetch<{ ok: boolean; dian_estado: string; cufe: string | null; mensaje: string; errores: string[] }>(
-        `/facturacion/facturas/${id}/transmitir`, { method: "POST" });
+        `/facturacion/facturas/${id}/${accion}`, { method: "POST" });
       const detalle = [r.mensaje, ...(r.errores ?? [])].filter(Boolean).join(" · ");
       setMsg({ ok: r.ok, texto: `DIAN: ${r.dian_estado}${detalle ? " — " + detalle : ""}${r.cufe ? " (CUFE " + r.cufe.slice(0, 12) + "…)" : ""}` });
       cargar(pagina);
@@ -193,7 +196,15 @@ export default function FacturacionElectronicaPage() {
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Imprimir">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                       </a>
-                      {(d.dian_estado === null || d.dian_estado === "pendiente" || d.dian_estado === "rechazada") && (
+                      {d.dian_estado === "enviada" && d.numero_dian && (
+                        <button onClick={() => transmitir(d.id, "consultar-dian")} disabled={!cfg?.activo || transmitiendoId === d.id}
+                          title="Consultar estado en la DIAN"
+                          className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+                        </button>
+                      )}
+                      {(d.dian_estado === null || d.dian_estado === "pendiente" || d.dian_estado === "rechazada"
+                        || (d.dian_estado === "enviada" && !d.numero_dian)) && (
                         <button onClick={() => transmitir(d.id)} disabled={!cfg?.activo || transmitiendoId === d.id}
                           title={cfg?.activo ? "Transmitir a la DIAN" : "Activa la integración en Administración → Facturación electrónica"}
                           className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent">

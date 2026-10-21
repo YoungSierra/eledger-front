@@ -20,6 +20,7 @@ interface Factura {
   cliente_id: string; cliente_nit: string | null; cliente_nombre: string | null;
   moneda_id: string; moneda_codigo: string; trm: string | null;
   estado: string; cxc_documento_id: string | null;
+  subtotal: string; total_retenciones: string;
   lineas: FacLinea[];
 }
 interface FacListItem {
@@ -159,10 +160,16 @@ function Modal({ devolucion, onClose, onSaved }: {
     const iva = Math.round(l.iva_facturado * frac * 100) / 100;
     return { sub, iva, total: sub + iva };
   }
-  const totales = lineas.reduce((acc, l) => {
+  const brutos = lineas.reduce((acc, l) => {
     const c = calcLinea(l);
-    return { sub: acc.sub + c.sub, iva: acc.iva + c.iva, total: acc.total + c.total };
-  }, { sub: 0, iva: 0, total: 0 });
+    return { sub: acc.sub + c.sub, iva: acc.iva + c.iva };
+  }, { sub: 0, iva: 0 });
+  // Las retenciones de la factura se reversan en proporción al subtotal devuelto
+  // (misma regla del backend); la NC acredita al cliente el neto.
+  const subFactura = parseFloat(factura?.subtotal ?? "0") || 0;
+  const retFactura = parseFloat(factura?.total_retenciones ?? "0") || 0;
+  const ret = subFactura > 0 ? Math.round(retFactura * Math.min(1, brutos.sub / subFactura) * 100) / 100 : 0;
+  const totales = { ...brutos, ret, total: brutos.sub + brutos.iva - ret };
 
   const lineasConCant = lineas.filter((l) => (parseFloat(l.cantidad) || 0) > 0);
 
@@ -388,6 +395,9 @@ function Modal({ devolucion, onClose, onSaved }: {
                 <div className="w-56 space-y-1 text-[12px] shrink-0">
                   <div className="flex justify-between text-gray-600"><span>Subtotal</span><span className="font-mono">{fmt(totales.sub, decs)}</span></div>
                   <div className="flex justify-between text-gray-600"><span>IVA</span><span className="font-mono">{fmt(totales.iva, decs)}</span></div>
+                  {totales.ret > 0 && (
+                    <div className="flex justify-between text-gray-600"><span>Retenciones</span><span className="font-mono">({fmt(totales.ret, decs)})</span></div>
+                  )}
                   <div className="flex justify-between font-bold text-gray-900 text-[13px] border-t border-gray-200 pt-1.5 mt-1"><span>Total NC</span><span className="font-mono">{fmt(totales.total, decs)}</span></div>
                 </div>
               </div>
