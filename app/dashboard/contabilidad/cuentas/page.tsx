@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
 import { usePageTitle } from "@/lib/menu-context";
 
 interface Cuenta {
@@ -36,6 +37,7 @@ const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 export default function CuentasPage() {
+  const aviso = useAviso();
   const title = usePageTitle();
   const [raices, setRaices]       = useState<Cuenta[]>([]);
   const [expandidos, setExpandidos] = useState<Record<string, Cuenta[]>>({});
@@ -106,7 +108,7 @@ export default function CuentasPage() {
       await apiFetch(`/cuentas/${c.id}/reactivar`, { method: "POST" });
       await cargarRaices(); setExpandidos({}); setAbiertos({});
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error al reactivar");
+      aviso.error(err instanceof Error ? err.message : "Error al reactivar");
     }
   }
 

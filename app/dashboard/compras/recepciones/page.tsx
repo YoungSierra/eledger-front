@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 import AsientoModal, { AsientoData } from "@/components/AsientoModal";
@@ -190,6 +191,7 @@ function OcSearch({ display, onChange }: { display: string; onChange: (id: strin
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function RecepcionesPage() {
+  const aviso = useAviso();
   const title = usePageTitle();
   const [lista, setLista] = useState<ListItem[]>([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -415,7 +417,7 @@ export default function RecepcionesPage() {
       await apiFetch(`/compras/recepciones/${id}/anular`, { method: "POST" });
       if (activo?.id === id) { const d: Recepcion = await apiFetch(`/compras/recepciones/${id}`); setActivo(d); }
       cargarLista();
-    } catch (e: any) { alert(e.message ?? "Error"); }
+    } catch (e: any) { aviso.error(e.message ?? "Error"); }
   }
 
   const totalCosto = lineas.reduce((s, l) => s + (parseFloat(l.cantidad) || 0) * (parseFloat(l.costo_unitario) || 0), 0);

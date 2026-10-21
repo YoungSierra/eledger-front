@@ -3,6 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
+import { useHasRuta } from "@/lib/menu-context";
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+
+interface UsuarioDir { id: string; nombre: string; apellido: string; email: string; }
+const TIPOS_DOC_OPE = [
+  { v: "FACTURA_COMERCIAL", l: "Factura comercial" },
+  { v: "LISTA_EMPAQUE", l: "Lista de empaque" },
+  { v: "CERTIFICADO_ORIGEN", l: "Certificado de origen" },
+  { v: "OTRO", l: "Otro" },
+];
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -125,8 +137,11 @@ function calcTotal(tipo: string, valorU: number, base: number, minimo: number | 
       vm = monedaCif === "USD" ? vm * trm : vm / trm;
     }
     total = (valorU / 100) * vm;
-  } else {
+  } else if (tipo === "POR_KG") {
     total = valorU * (base || 1);
+  } else {
+    // Por embarque: un solo cobro; la base (peso) no aplica aunque quede guardada.
+    total = valorU;
   }
   // Cada lado tiene su propio mínimo: el del proveedor no es el del cliente.
   if (minimo !== null && total < minimo) total = minimo;
@@ -526,6 +541,9 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [cotizacionId, setCotizacionId] = useState<string | null>(null);
   const [numero, setNumero]             = useState<string>("");
   const [operacionId, setOperacionId]   = useState<string | null>(null);
+  const [operacionNumero, setOperacionNumero] = useState("");
+  // Sin la opción Operaciones (p. ej. comercial) el número se muestra sin enlace.
+  const veOperaciones = useHasRuta("/dashboard/operaciones/operaciones");
 
   // Líneas por sección
   const [lineas, setLineas]           = useState<Record<string, Linea[]>>({});
@@ -540,9 +558,21 @@ export default function CotizacionForm({ id }: { id: string }) {
   const [printOpen, setPrintOpen]     = useState(false);
   const [printMoneda, setPrintMoneda] = useState<"COP" | "USD">("COP");
   const [aprobarOpen, setAprobarOpen] = useState(false);
-  const [opsAbiertas, setOpsAbiertas] = useState<{ id: string; numero: string; clientes: { nombre: string }[] }[]>([]);
+  const [opsAbiertas, setOpsAbiertas] = useState<{ id: string; numero: string; clientes: { nombre: string }[]; responsable_operativo_id: string | null }[]>([]);
   const [opElegida, setOpElegida]     = useState("");   // "" = nueva operación
   const [busquedaOp, setBusquedaOp]   = useState("");
+  // Paso 2 de aprobar: correo de instrucciones operativas (obligatorio).
+  const [aprobarPaso, setAprobarPaso] = useState<1 | 2>(1);
+  const [usuariosDir, setUsuariosDir] = useState<UsuarioDir[]>([]);
+  const [responsableId, setResponsableId] = useState("");
+  const [copiasIds, setCopiasIds]     = useState<string[]>([]);
+  const [instrucciones, setInstrucciones] = useState("");
+  const [adjuntos, setAdjuntos]       = useState<{ file: File; tipo: string }[]>([]);
+  const [creadoPor, setCreadoPor]     = useState("");
+  const adjRef = useRef<HTMLInputElement>(null);
+  const aviso = useAviso();
+  // 403: con «ver solo lo propio», una cotización ajena.
+  const [errorCarga, setErrorCarga] = useState("");
 
   // Parámetros globales (adm_configuracion). Arranca permitiendo reabrir para no
   // parpadear el botón mientras carga; el backend es el que manda de todos modos.
@@ -570,7 +600,7 @@ export default function CotizacionForm({ id }: { id: string }) {
       }
     }).catch(() => {});
 
-    if (!isNueva) cargarCotizacion();
+    if (!isNueva) cargarCotizacion().catch((e) => setErrorCarga(e instanceof Error ? e.message : "Error al cargar la cotización"));
     else cargarTrm();
   }, []);
 
@@ -630,11 +660,12 @@ export default function CotizacionForm({ id }: { id: string }) {
     setNotas(data.notas ?? "");
     setEstado(data.estado);
     if (data.estado === "APROBADA") {
-      apiFetch<{ id: string }>(`/operaciones/cotizaciones/${data.id}/operacion`)
-        .then((op) => setOperacionId(op.id))
+      apiFetch<{ id: string; numero: string }>(`/operaciones/cotizaciones/${data.id}/operacion`)
+        .then((op) => { setOperacionId(op.id); setOperacionNumero(op.numero); })
         .catch(() => {});
     }
     if ((data as any).asesor_id) setAsesorId((data as any).asesor_id);
+    setCreadoPor((data as any).creado_por ?? "");
     const tercero = await apiFetch<{ razon_social: string; asesor_id: string | null }>(`/terceros/${data.cliente_id}`);
     setClienteNombre(tercero.razon_social);
     // Agrupar líneas por sección
@@ -851,25 +882,78 @@ export default function CotizacionForm({ id }: { id: string }) {
     setError("");
     setOpElegida("");
     setBusquedaOp("");
+    setAprobarPaso(1);
+    setResponsableId(""); setCopiasIds([]); setInstrucciones(""); setAdjuntos([]);
     try {
-      const ops = await apiFetch<{ id: string; numero: string; clientes: { nombre: string }[] }[]>("/operaciones/operaciones?estado=ABIERTA");
+      const ops = await apiFetch<{ id: string; numero: string; clientes: { nombre: string }[]; responsable_operativo_id: string | null }[]>("/operaciones/operaciones?estado=ABIERTA");
       setOpsAbiertas(ops);
     } catch { setOpsAbiertas([]); }
+    apiFetch<UsuarioDir[]>("/usuarios/directorio").then(setUsuariosDir).catch(() => setUsuariosDir([]));
     setAprobarOpen(true);
   }
 
+  function irAInstrucciones() {
+    setError("");
+    // Asociada: se precarga el responsable que ya tiene la operación.
+    const op = opsAbiertas.find((o) => o.id === opElegida);
+    setResponsableId(op?.responsable_operativo_id ?? "");
+    setAprobarPaso(2);
+  }
+
+  function agregarAdjuntos(files: FileList | null) {
+    if (!files) return;
+    // Copiar antes de limpiar el input: el FileList es vivo y se vacía con él.
+    const nuevos = Array.from(files).map((file) => ({ file, tipo: "OTRO" }));
+    setAdjuntos((prev) => [...prev, ...nuevos]);
+    if (adjRef.current) adjRef.current.value = "";
+  }
+
   async function confirmarAprobar() {
+    if (!responsableId) { setError("Elige el responsable operativo"); return; }
+    if (!instrucciones.trim()) { setError("Escribe las instrucciones operativas"); return; }
     setSaving(true); setError("");
     try {
-      await apiFetch(`/operaciones/cotizaciones/${cotizacionId}/aprobar`, {
-        method: "POST", body: JSON.stringify({ operacion_id: opElegida || null }),
+      const fd = new FormData();
+      fd.append("datos", JSON.stringify({
+        operacion_id: opElegida || null,
+        responsable_operativo_id: responsableId,
+        copias_ids: copiasIds.filter((id) => id !== responsableId),
+        instrucciones,
+        documentos_tipos: adjuntos.map((a) => a.tipo),
+      }));
+      adjuntos.forEach((a) => fd.append("archivos", a.file));
+      const token = localStorage.getItem("access_token");
+      const res = await fetch(`${BASE_URL}/operaciones/cotizaciones/${cotizacionId}/aprobar`, {
+        method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd,
       });
-      router.push("/dashboard/operaciones/operaciones");
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ detail: "Error al aprobar" }));
+        throw new Error(typeof e.detail === "string" ? e.detail : "Error al aprobar");
+      }
+      const r: { operacion: { id: string; numero: string }; correo_enviado: boolean; correo_error: string | null } = await res.json();
+      // Se queda en la cotización: quien aprueba (comercial) no suele gestionar la operación.
+      setAprobarOpen(false);
+      setSaving(false);
+      await cargarCotizacion();
+      // Si el correo falló, la aprobación quedó igual: se reenvía desde la bitácora.
+      if (r.correo_enviado) {
+        aviso.exito(`Cotización aprobada · ${r.operacion.numero}`, "Las instrucciones se enviaron a operaciones.");
+      } else {
+        aviso.advertencia(`Cotización aprobada · ${r.operacion.numero}`,
+          `El correo de instrucciones no salió${r.correo_error ? `: ${r.correo_error}` : "."} Reenvíalo desde la bitácora de la operación.`);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error");
       setSaving(false);
     }
   }
+
+  if (errorCarga) return (
+      <div className="p-10 text-center">
+        <p className="text-[13px] font-semibold text-gray-700">No se pudo abrir la cotización</p>
+        <p className="text-[12px] text-gray-500 mt-1">{errorCarga}</p>
+      </div>
+  );
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 88px)" }}>
@@ -943,7 +1027,10 @@ export default function CotizacionForm({ id }: { id: string }) {
               Reabrir
             </button>
           )}
-          {!isNueva && estado === "APROBADA" && operacionId && (
+          {!isNueva && estado === "APROBADA" && operacionId && !veOperaciones && operacionNumero && (
+            <span className="text-[11px] text-gray-500">Operación <span className="font-mono font-semibold text-gray-700">{operacionNumero}</span></span>
+          )}
+          {!isNueva && estado === "APROBADA" && operacionId && veOperaciones && (
             <button onClick={() => router.push(`/dashboard/operaciones/operaciones/${operacionId}`)}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[12px] font-medium rounded-lg">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1362,8 +1449,11 @@ export default function CotizacionForm({ id }: { id: string }) {
       {/* Modal aprobar: nueva operación o asociar a una abierta */}
       {aprobarOpen && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6">
-            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">Aprobar cotización</h2>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-[14px] font-semibold text-gray-800 mb-1">
+              Aprobar cotización <span className="text-[11px] font-normal text-gray-400">· Paso {aprobarPaso} de 2</span>
+            </h2>
+            {aprobarPaso === 1 ? (<>
             <p className="text-[11px] text-gray-400 mb-4">Al aprobar se genera la carpeta operativa. Puedes crear una operación nueva o asociar esta cotización a una operación abierta (consolidación de clientes).</p>
 
             <label className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 mb-3">
@@ -1398,14 +1488,102 @@ export default function CotizacionForm({ id }: { id: string }) {
                 ));
               })()}
             </div>
+            </>) : (() => {
+              const nombreU = (u: UsuarioDir) => `${u.nombre} ${u.apellido}`.trim();
+              const comercial = usuariosDir.find((u) => u.id === creadoPor);
+              const disponiblesCopia = usuariosDir.filter((u) => u.id !== responsableId && !copiasIds.includes(u.id));
+              return (
+                <div className="space-y-3 mb-4">
+                  <p className="text-[11px] text-gray-400">
+                    Correo de instrucciones para operaciones. Es obligatorio: queda en la bitácora (interna, no la ve el cliente) y los adjuntos se guardan en Documentos.
+                  </p>
+                  <div className="text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                    {opElegida ? <>Operación: <span className="font-mono font-semibold">{opsAbiertas.find((o) => o.id === opElegida)?.numero}</span></> : "Operación nueva"}
+                    {" · "}Comercial: <span className="font-medium">{comercial ? nombreU(comercial) : "—"}</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 mb-1">Responsable operativo (Para) *</label>
+                    <select value={responsableId} onChange={(e) => { const v = e.target.value; setResponsableId(v); setCopiasIds((c) => c.filter((id) => id !== v)); }}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-[12px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option value="">Elegir usuario…</option>
+                      {usuariosDir.map((u) => <option key={u.id} value={u.id}>{nombreU(u)} — {u.email}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 mb-1">Copias (CC)</label>
+                    {copiasIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-1.5">
+                        {copiasIds.map((id) => {
+                          const u = usuariosDir.find((x) => x.id === id);
+                          return (
+                            <span key={id} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full pl-2 pr-1 py-0.5">
+                              {u ? nombreU(u) : id}
+                              <button type="button" onClick={() => setCopiasIds((c) => c.filter((x) => x !== id))}
+                                className="w-4 h-4 rounded-full hover:bg-blue-100 leading-none" aria-label="Quitar">×</button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <select value="" onChange={(e) => { const v = e.target.value; if (v) setCopiasIds((c) => [...c, v]); }}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-[12px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option value="">Agregar usuario en copia…</option>
+                      {disponiblesCopia.map((u) => <option key={u.id} value={u.id}>{nombreU(u)} — {u.email}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 mb-1">Instrucciones operativas *</label>
+                    <textarea value={instrucciones} onChange={(e) => setInstrucciones(e.target.value)} rows={7}
+                      placeholder="Qué hay que hacer, con quién coordinar, fechas, documentos pendientes…"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[12px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y" />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-medium text-gray-600">Adjuntos</label>
+                      <button type="button" onClick={() => adjRef.current?.click()}
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">+ Adjuntar archivos</button>
+                      <input ref={adjRef} type="file" multiple className="hidden" onChange={(e) => agregarAdjuntos(e.target.files)} />
+                    </div>
+                    {adjuntos.length === 0 ? (
+                      <p className="text-[11px] text-gray-400">Sin adjuntos.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {adjuntos.map((a, i) => (
+                          <div key={i} className="flex items-center gap-2 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                            <span className="text-[11px] text-gray-700 truncate flex-1" title={a.file.name}>{a.file.name}</span>
+                            <select value={a.tipo} onChange={(e) => { const v = e.target.value; setAdjuntos((prev) => prev.map((x, j) => j === i ? { ...x, tipo: v } : x)); }}
+                              className="px-2 py-1 border border-gray-200 rounded-md text-[11px] text-gray-600">
+                              {TIPOS_DOC_OPE.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                            </select>
+                            <button type="button" onClick={() => setAdjuntos((prev) => prev.filter((_, j) => j !== i))}
+                              className="text-gray-400 hover:text-red-500 text-[14px] leading-none px-1" aria-label="Quitar">×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5 mb-3">{error}</p>}
             <div className="flex justify-end gap-2">
+              {aprobarPaso === 2 && (
+                <button onClick={() => { setError(""); setAprobarPaso(1); }} disabled={saving}
+                  className="mr-auto px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Atrás</button>
+              )}
               <button onClick={() => setAprobarOpen(false)} disabled={saving}
                 className="px-4 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg">Cancelar</button>
-              <button onClick={confirmarAprobar} disabled={saving}
-                className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
-                {saving ? "Aprobando..." : opElegida ? "Asociar y aprobar" : "Crear y aprobar"}
-              </button>
+              {aprobarPaso === 1 ? (
+                <button onClick={irAInstrucciones}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">
+                  Siguiente: instrucciones
+                </button>
+              ) : (
+                <button onClick={confirmarAprobar} disabled={saving}
+                  className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[12px] font-medium rounded-lg">
+                  {saving ? "Aprobando..." : opElegida ? "Asociar, aprobar y enviar" : "Crear, aprobar y enviar"}
+                </button>
+              )}
             </div>
           </div>
         </div>

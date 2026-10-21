@@ -627,7 +627,7 @@ const OPERACIONES: ModuloAyuda = {
           items: [
             { campo: "Sección", desc: "Transporte internacional, gastos en origen, gastos en destino, aduana, transporte terrestre, almacenamiento, seguro. Las vacías no se imprimen." },
             { campo: "Concepto", desc: "Del catálogo de Conceptos tarifarios. Trae el tipo de cálculo y la moneda." },
-            { campo: "Valor unitario y costo", desc: "Lo que se cobra al cliente y lo que cobra el proveedor." },
+            { campo: "Valor unitario y costo", desc: "Lo que se cobra al cliente y lo que cobra el proveedor. Por kg se multiplica por el peso; por embarque se cobra una sola vez." },
             { campo: "Mínimo de venta / de costo", desc: "Si el cálculo da menos, se toma el mínimo. El de costo no se imprime." },
             { campo: "Opcional", desc: "No suma al total; sale aparte y solo se cobra si el cliente lo toma." },
           ],
@@ -638,6 +638,7 @@ const OPERACIONES: ModuloAyuda = {
           items: [
             "Borrador: único estado editable.",
             "Enviada → Aprobada (crea la operación) o Rechazada. Vencida: automático.",
+            "Aprobar tiene dos pasos: elegir operación nueva o asociada, y redactar el correo de instrucciones operativas (obligatorio) al responsable operativo, con copias a otros usuarios y adjuntos.",
             "Imprimir cotización: PDF para el cliente, sin costos ni margen.",
             "Mover cotización: la pasa a otra operación abierta o a una nueva; pide motivo.",
           ],
@@ -661,7 +662,7 @@ const OPERACIONES: ModuloAyuda = {
         {
           tipo: "parrafo",
           texto:
-            "Cada operación nace al aprobar una cotización; no se crea a mano. Puede reunir varias cotizaciones (consolidados). Estados: Abierta → En curso → Cerrada, o Cancelada.",
+            "Cada operación nace al aprobar una cotización; no se crea a mano. Puede reunir varias cotizaciones (consolidados). Estados: Abierta → En curso → Cerrada, o Cancelada. El listado muestra el comercial (asesor de la cotización) y el operativo responsable.",
         },
         { tipo: "subtitulo", texto: "Pestañas de la carpeta" },
         {
@@ -669,11 +670,11 @@ const OPERACIONES: ModuloAyuda = {
           items: [
             { campo: "Datos", desc: "Cliente, ruta, piezas y peso totales, y las cotizaciones que la componen." },
             { campo: "Confirmación", desc: "Operaciones confirma cada concepto con el peso real. El contador muestra lo pendiente. Aquí se agregan cobros no cotizados." },
-            { campo: "MAWB", desc: "Guía master de la aerolínea. Se hace primero." },
+            { campo: "MAWB", desc: "Guía master de la aerolínea. Se hace primero. El shipper es Universal Cargo; «Cambiar shipper» para los casos en que es otro." },
             { campo: "HAWB", desc: "Guía hija por cliente, amarrada al MAWB: shipper, consignee, vuelo, pesos y mercancía." },
             { campo: "Marítimo", desc: "MBL y HBL con buque, viaje, contenedor, sello, ETD y ETA." },
             { campo: "Manifiesto", desc: "Agrupa las HAWB de un MAWB. Se emite o se anula; no se edita." },
-            { campo: "Bitácora", desc: "Novedades del embarque. Opción de enviar el evento al cliente por correo, con adjunto." },
+            { campo: "Bitácora", desc: "Novedades del embarque. Opción de enviar el evento al cliente por correo, con adjunto. Aquí queda la instrucción operativa de la aprobación (interna) y, si su correo falló, el botón Reenviar." },
             { campo: "Documentos", desc: "Factura comercial, lista de empaque, certificado de origen, etc.: pendiente, recibido o aprobado." },
           ],
         },

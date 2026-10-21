@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
 import { usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
 import CentroCostoTreeSelect from "@/components/CentroCostoTreeSelect";
@@ -195,6 +196,7 @@ function ProductoSearch({ display, onChange }: { display: string; onChange: (p: 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function OrdenesCompraPage() {
+  const aviso = useAviso();
   const title = usePageTitle();
   const [lista, setLista] = useState<ListItem[]>([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -470,7 +472,7 @@ export default function OrdenesCompraPage() {
           await apiFetch(`/compras/ordenes/${id}/aprobar`, { method: "POST" });
           if (activo?.id === id) { const d: Oc = await apiFetch(`/compras/ordenes/${id}`); setActivo(d); }
           cargarLista();
-        } catch (e: any) { alert(e.message ?? "Error"); }
+        } catch (e: any) { aviso.error(e.message ?? "Error"); }
       },
     });
   }
@@ -485,7 +487,7 @@ export default function OrdenesCompraPage() {
           await apiFetch(`/compras/ordenes/${id}/anular`, { method: "POST" });
           if (activo?.id === id) { const d: Oc = await apiFetch(`/compras/ordenes/${id}`); setActivo(d); }
           cargarLista();
-        } catch (e: any) { alert(e.message ?? "Error"); }
+        } catch (e: any) { aviso.error(e.message ?? "Error"); }
       },
     });
   }

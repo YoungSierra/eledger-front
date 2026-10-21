@@ -101,6 +101,11 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
   const [aeropuertos, setAeropuertos] = useState<Aeropuerto[]>([]);
   const [operacion, setOperacion] = useState<Operacion | null>(null);
 
+  // Shipper: vacío = Universal Cargo (lo normal); se cambia solo si es otro.
+  const [shipperId, setShipperId] = useState("");
+  const [shipperNombre, setShipperNombre] = useState("");
+  const [shipperDetalle, setShipperDetalle] = useState("");
+  const [shipperOtro, setShipperOtro] = useState(false);
   // Consignee
   const [consigneeId, setConsigneeId] = useState("");
   const [consigneeNombre, setConsigneeNombre] = useState("");
@@ -178,6 +183,9 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
         .then((data) => {
           setPrefix((data.prefix as string) ?? "230");
           setSeq((data.numero_mawb as string)?.split("-")[1] ?? (data.numero_mawb as string) ?? "");
+          const sid = (data.shipper_id as string) ?? "";
+          setShipperId(sid); setShipperOtro(!!sid);
+          if (sid) apiFetch<Tercero>(`/terceros/${sid}`).then((t) => { setShipperNombre(t.razon_social); setShipperDetalle(`NIT ${t.nit}`); }).catch(() => {});
           const cid = (data.consignee_id as string) ?? "";
           setConsigneeId(cid);
           if (cid) apiFetch<Tercero>(`/terceros/${cid}`).then((t) => { setConsigneeNombre(t.razon_social); setConsigneeDetalle(`NIT ${t.nit}`); }).catch(() => {});
@@ -229,11 +237,13 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
 
   async function guardar() {
     if (!sequential.trim()) { setError("Ingresa el número secuencial del MAWB"); return; }
+    if (shipperOtro && !shipperId) { setError("Elige el shipper o vuelve a Universal Cargo"); return; }
     setSaving(true); setError("");
     try {
       const payload = {
         prefix: prefix || null,
         numero_mawb: mawbFull,
+        shipper_id: shipperOtro ? (shipperId || null) : null,
         consignee_id: consigneeId || null,
         shipper_account: shipperAccount || null,
         consignee_account: consigneeAccount || null,
@@ -439,14 +449,31 @@ export default function MawbForm({ operacionId, mawbId }: { operacionId: string;
               </td>
             </tr>
 
-            {/* ── Fila 2: Shipper (fijo) + Legal ──────────────────────── */}
+            {/* ── Fila 2: Shipper (Universal Cargo por defecto) + Legal ─ */}
             <tr>
               <td colSpan={11} style={S.td({ minHeight: 56, background: "#f9fafb" })}>
-                <TerceroField label="Shipper's Name and Address — Siempre Universal Cargo"
-                  nombre="UNIVERSAL CARGO COLOMBIA SAS"
-                  detalle={<>NIT: 901.702.367 · CRA 106 # 15a - 25 mzn 24 BOD 145<br />julian.fontecha@universalcargo.com.co · TEL: 314 3045776 · BOGOTA-COLOMBIA</>}
-                />
-                <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 2 }}>Dato fijo</div>
+                {shipperOtro ? (
+                  <>
+                    <BusquedaTercero label="Shipper's Name and Address"
+                      display={shipperNombre}
+                      onSelect={(id, nombre, detalle) => { setShipperId(id); setShipperNombre(nombre); setShipperDetalle(detalle); }} />
+                    {shipperNombre && <div style={S.valSm}>{shipperDetalle}</div>}
+                  </>
+                ) : (
+                  <TerceroField label="Shipper's Name and Address"
+                    nombre="UNIVERSAL CARGO COLOMBIA SAS"
+                    detalle={<>NIT: 901.702.367 · CRA 106 # 15a - 25 mzn 24 BOD 145<br />julian.fontecha@universalcargo.com.co · TEL: 314 3045776 · BOGOTA-COLOMBIA</>}
+                  />
+                )}
+                {editable && (
+                  <button type="button" style={{ fontSize: 9, color: "#2563eb", marginTop: 2, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                    onClick={() => {
+                      if (shipperOtro) { setShipperOtro(false); setShipperId(""); setShipperNombre(""); setShipperDetalle(""); }
+                      else setShipperOtro(true);
+                    }}>
+                    {shipperOtro ? "Volver a Universal Cargo" : "Cambiar shipper"}
+                  </button>
+                )}
               </td>
               <td colSpan={3} style={S.td({ background: "#f9fafb" })}>
                 <span style={S.lbl}>Shipper's Acct. #</span>

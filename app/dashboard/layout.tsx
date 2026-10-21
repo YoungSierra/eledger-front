@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiFetch, logout } from "@/lib/api";
 import { MenuContext, GrupoMenu } from "@/lib/menu-context";
 import AyudaPanel from "@/components/AyudaPanel";
+import { AvisosProvider } from "@/components/Avisos";
 
 interface UsuarioActual {
   id: string;
@@ -38,6 +39,18 @@ const SECCIONES_SIDEBAR: { label: string; modulos: string[] }[] = [
   { label: "Análisis",     modulos: ["reportes"] },
 ];
 
+// Pantallas fuera del menú a las que entra cualquier usuario del dashboard.
+const RUTAS_LIBRES = ["/dashboard/ayuda", "/dashboard/requerimientos"];
+
+/** ¿La ruta es una opción del menú del usuario (o una pantalla hija de ella)?
+ *  El menú ya viene filtrado por puede_ver; esto cierra la entrada por URL o
+ *  por un enlace de otra pantalla. El backend valida igual por su lado. */
+function rutaPermitida(pathname: string, grupos: GrupoMenu[]): boolean {
+  if (pathname === "/dashboard" || pathname === "/dashboard/") return true;
+  if (RUTAS_LIBRES.some((r) => pathname === r || pathname.startsWith(r + "/"))) return true;
+  return grupos.some((g) => g.opciones.some((o) => o.ruta && (pathname === o.ruta || pathname.startsWith(o.ruta + "/"))));
+}
+
 const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function buildBreadcrumb(pathname: string): string {
@@ -56,6 +69,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const [usuario, setUsuario]     = useState<UsuarioActual | null>(null);
   const [grupos, setGrupos]       = useState<GrupoMenu[]>([]);
+  const [menuCargado, setMenuCargado] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [ayudaOpen, setAyudaOpen] = useState(false);
@@ -112,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setUsuario(u);
         return apiFetch<GrupoMenu[]>("/menu");
       })
-      .then(setGrupos)
+      .then((g) => { setGrupos(g); setMenuCargado(true); })
       .catch(() => router.push("/login"));
   }, [router]);
 
@@ -496,7 +510,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Contenido */}
         <main className="flex-1 overflow-auto p-5 min-h-0">
           <MenuContext.Provider value={grupos}>
-            {children}
+            <AvisosProvider>
+              {!menuCargado || rutaPermitida(pathname, grupos) ? children : (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center max-w-sm">
+                    <div className="mx-auto w-11 h-11 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <h2 className="text-[14px] font-semibold text-gray-800">Sin acceso a esta opción</h2>
+                    <p className="text-[12px] text-gray-500 mt-1">Tu rol no tiene permiso para ver esta pantalla. Si la necesitas, pídela al administrador.</p>
+                    <Link href="/dashboard" className="inline-block mt-4 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium rounded-lg">Ir al inicio</Link>
+                  </div>
+                </div>
+              )}
+            </AvisosProvider>
           </MenuContext.Provider>
         </main>
       </div>

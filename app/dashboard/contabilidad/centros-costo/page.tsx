@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
 import { usePageTitle } from "@/lib/menu-context";
 
 interface Centro {
@@ -17,6 +18,7 @@ const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 export default function CentrosCostoPage() {
+  const aviso = useAviso();
   const title = usePageTitle();
   const [raices, setRaices]           = useState<Centro[]>([]);
   const [expandidos, setExpandidos]   = useState<Record<string, Centro[]>>({});
@@ -114,7 +116,7 @@ export default function CentrosCostoPage() {
     try {
       await apiFetch(`/centros-costo/${c.id}/reactivar`, { method: "POST" });
       cargarRaices(); setExpandidos({});
-    } catch (err: unknown) { alert(err instanceof Error ? err.message : "Error"); }
+    } catch (err: unknown) { aviso.error(err instanceof Error ? err.message : "Error"); }
   }
 
   const lista = resultados ?? raices;

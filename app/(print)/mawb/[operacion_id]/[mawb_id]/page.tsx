@@ -8,7 +8,7 @@ const LEGAL = "It is agreed that the goods described herein are accepted in appa
 
 interface Mawb {
   id: string; operacion_id: string; prefix: string | null; numero_mawb: string;
-  consignee_id: string | null; shipper_account: string | null; consignee_account: string | null;
+  consignee_id: string | null; shipper_id: string | null; shipper_account: string | null; consignee_account: string | null;
   aerolinea_id: string | null; aeropuerto_origen_id: string | null; aeropuerto_destino_id: string | null;
   vuelo: string | null; fecha_vuelo: string | null; trm: string | null;
   agent_iata_code: string | null; agent_account_no: string | null;
@@ -45,9 +45,9 @@ function fmt(n: string | number | null | undefined, dec = 2) {
 }
 
 function MawbDoc({
-  mawb, consignee, aerolinea, aerOrigen, aerDestino, originalNum,
+  mawb, shipper, consignee, aerolinea, aerOrigen, aerDestino, originalNum,
 }: {
-  mawb: Mawb; consignee: Tercero | null; aerolinea: Aerolinea | null;
+  mawb: Mawb; shipper: Tercero | null; consignee: Tercero | null; aerolinea: Aerolinea | null;
   aerOrigen: Aeropuerto | null; aerDestino: Aeropuerto | null; originalNum: number;
 }) {
   const prefix = mawb.prefix ?? "";
@@ -87,15 +87,27 @@ function MawbDoc({
           </td>
         </tr>
 
-        {/* FILA 2: Shipper (siempre Universal Cargo) + Legal */}
+        {/* FILA 2: Shipper (Universal Cargo salvo que se elija otro) + Legal */}
         <tr>
           <td colSpan={12} style={S.td({ minHeight: 48, background: "#f9fafb" })}>
             <span style={S.lbl}>Shipper&apos;s Name and Address</span>
-            <div style={S.valBold}>UNIVERSAL CARGO COLOMBIA SAS</div>
-            <div style={S.valSm}>NIT: 901.702.367</div>
-            <div style={S.valSm}>CRA 106 # 15a - 25 mzn 24 BOD 145</div>
-            <div style={S.valSm}>julian.fontecha@universalcargo.com.co · TEL: 314 3045776</div>
-            <div style={S.valSm}>BOGOTA - COLOMBIA</div>
+            {shipper ? (
+              <>
+                <div style={S.valBold}>{shipper.razon_social}</div>
+                <div style={S.valSm}>NIT: {shipper.nit}</div>
+                {shipper.direccion && <div style={S.valSm}>{shipper.direccion}</div>}
+                {(shipper.email || shipper.telefono) && <div style={S.valSm}>{[shipper.email, shipper.telefono && `TEL: ${shipper.telefono}`].filter(Boolean).join(" · ")}</div>}
+                {shipper.ciudad && <div style={S.valSm}>{shipper.ciudad}</div>}
+              </>
+            ) : (
+              <>
+                <div style={S.valBold}>UNIVERSAL CARGO COLOMBIA SAS</div>
+                <div style={S.valSm}>NIT: 901.702.367</div>
+                <div style={S.valSm}>CRA 106 # 15a - 25 mzn 24 BOD 145</div>
+                <div style={S.valSm}>julian.fontecha@universalcargo.com.co · TEL: 314 3045776</div>
+                <div style={S.valSm}>BOGOTA - COLOMBIA</div>
+              </>
+            )}
           </td>
           <td colSpan={2} style={S.td({ background: "#f9fafb" })}>
             <span style={S.lbl}>Shipper&apos;s<br />Account #</span>
@@ -406,6 +418,7 @@ function MawbDoc({
 export default function MawbPrintPage({ params }: { params: Promise<{ operacion_id: string; mawb_id: string }> }) {
   const [mawb, setMawb] = useState<Mawb | null>(null);
   const [consignee, setConsignee] = useState<Tercero | null>(null);
+  const [shipper, setShipper] = useState<Tercero | null>(null);
   const [aerolinea, setAerolinea] = useState<Aerolinea | null>(null);
   const [aerOrigen, setAerOrigen] = useState<Aeropuerto | null>(null);
   const [aerDestino, setAerDestino] = useState<Aeropuerto | null>(null);
@@ -422,6 +435,7 @@ export default function MawbPrintPage({ params }: { params: Promise<{ operacion_
         document.title = data.numero_mawb;
         const fetches: Promise<void>[] = [];
         if (data.consignee_id) fetches.push(apiFetch<Tercero>(`/terceros/${data.consignee_id}`).then(setConsignee).catch(() => {}));
+        if (data.shipper_id) fetches.push(apiFetch<Tercero>(`/terceros/${data.shipper_id}`).then(setShipper).catch(() => {}));
         if (data.aerolinea_id) fetches.push(apiFetch<Aerolinea>(`/operaciones/aerolineas/${data.aerolinea_id}`).then(setAerolinea).catch(() => {}));
         if (data.aeropuerto_origen_id) fetches.push(apiFetch<Aeropuerto>(`/operaciones/aeropuertos/${data.aeropuerto_origen_id}`).then(setAerOrigen).catch(() => {}));
         if (data.aeropuerto_destino_id) fetches.push(apiFetch<Aeropuerto>(`/operaciones/aeropuertos/${data.aeropuerto_destino_id}`).then(setAerDestino).catch(() => {}));
@@ -472,7 +486,7 @@ export default function MawbPrintPage({ params }: { params: Promise<{ operacion_
           <div key={i} className="mawb-copy"
             style={{ width: 1050, margin: "0 auto 20px", background: "#fff", boxShadow: "0 2px 12px rgba(0,0,0,0.15)", padding: "10px" }}>
             <MawbDoc
-              mawb={mawb} consignee={consignee} aerolinea={aerolinea}
+              mawb={mawb} shipper={shipper} consignee={consignee} aerolinea={aerolinea}
               aerOrigen={aerOrigen} aerDestino={aerDestino} originalNum={i + 1}
             />
           </div>

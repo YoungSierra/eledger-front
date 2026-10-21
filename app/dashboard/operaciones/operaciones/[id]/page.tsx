@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { usePageTitle } from "@/lib/menu-context";
+import { useHasRuta, usePageTitle } from "@/lib/menu-context";
 import { MontoInput } from "@/components/MontoInput";
 import MaritimoTab from "@/components/MaritimoTab";
 
@@ -192,7 +192,10 @@ const TIPO_EVENTO: Record<string, string> = {
   RESERVA:             "Reserva",
   APERTURA:            "Apertura",
   CIERRE:              "Cierre",
+  INSTRUCCION:         "Instrucción operativa",
 };
+// La instrucción operativa nace al aprobar la cotización; no se registra a mano.
+const TIPOS_EVENTO_MANUAL = Object.entries(TIPO_EVENTO).filter(([k]) => k !== "INSTRUCCION");
 
 const inputCls = "w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-[12px] text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500";
 const labelCls = "block text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1";
@@ -274,6 +277,7 @@ function BusquedaInput({ label, display, onSelect, fetchFn, placeholder }: {
 
 export default function OperacionDetallePage({ params }: { params: Promise<{ id: string }> }) {
   const title = usePageTitle();
+  const veCotizaciones = useHasRuta("/dashboard/operaciones/cotizaciones");
   const router = useRouter();
   const [resolvedId, setResolvedId] = useState("");
   const [carpeta, setCarpeta] = useState<Carpeta | null>(null);
@@ -370,6 +374,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
   useEffect(() => { params.then(({ id }) => setResolvedId(id)); }, [params]);
 
+  const [errorCarga, setErrorCarga] = useState("");
   const cargarCarpeta = useCallback(async () => {
     if (!resolvedId) return;
     try {
@@ -394,7 +399,11 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
         try { est[c.id] = await apiFetch<FactEstado>(`/operaciones/cotizaciones/${c.id}/facturacion`); } catch {}
       }));
       setFactEstados(est);
-    } catch { /* redirige a /login si sesión expiró */ }
+    } catch (e) {
+      // 403: sin la opción o, con «ver solo lo propio», una operación ajena.
+      // (Si la sesión expiró, apiFetch ya redirige a /login.)
+      setErrorCarga(e instanceof Error ? e.message : "Error al cargar la operación");
+    }
   }, [resolvedId]);
 
   const cargarConceptos = useCallback(async () => {
@@ -839,6 +848,15 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
 
   /** Reintento de un correo que falló: mismos destinatarios y mismo adjunto. */
   async function reenviarCorreo(ev: Evento) {
+    if (ev.tipo === "INSTRUCCION") {
+      setReenviando(ev.id); setError("");
+      try {
+        await apiFetch(`/operaciones/eventos/${ev.id}/reenviar-instruccion`, { method: "POST" });
+        await cargarCarpeta();
+      } catch (e) { setError(e instanceof Error ? e.message : "No se pudo reenviar el correo"); }
+      finally { setReenviando(null); }
+      return;
+    }
     const destinatarios = (ev.correo_destinatarios ?? "").split(",").map((d) => d.trim()).filter(Boolean);
     if (!destinatarios.length) return;
     setReenviando(ev.id); setError("");
@@ -915,6 +933,12 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
   }
 
   if (!carpeta) {
+    if (errorCarga) return (
+      <div className="p-10 text-center">
+        <p className="text-[13px] font-semibold text-gray-700">No se pudo abrir la operación</p>
+        <p className="text-[12px] text-gray-500 mt-1">{errorCarga}</p>
+      </div>
+    );
     return <div className="p-8 text-[12px] text-gray-400">Cargando...</div>;
   }
 
@@ -1561,10 +1585,12 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                   );
                 })()}
                 <div className="flex items-center gap-3 pt-1">
-                  <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cot.id}`, "_blank")}
-                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
-                    Ver cotización ↗
-                  </button>
+                  {veCotizaciones && (
+                    <button onClick={() => window.open(`/dashboard/operaciones/cotizaciones/${cot.id}`, "_blank")}
+                      className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">
+                      Ver cotización ↗
+                    </button>
+                  )}
                   {factEstados[cot.id]?.estado_facturacion === "sin_confirmar" ? (
                     <button onClick={() => setTab("confirmacion")}
                       className="text-[11px] text-purple-700 hover:text-purple-800 font-semibold border border-purple-200 bg-purple-50 rounded-md px-2 py-0.5">
@@ -2198,6 +2224,9 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                         {ev.hawb_numero && (
                           <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{ev.hawb_numero}</span>
                         )}
+                        {ev.tipo === "INSTRUCCION" && (
+                          <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded" title="No la ve el cliente">Interna</span>
+                        )}
                         {ev.correo_enviado_en && (
                           <span className="text-[10px] text-green-600 font-medium"
                             title={`Enviado a ${ev.correo_destinatarios ?? ""}`}>
@@ -2208,10 +2237,13 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                           {new Date(ev.fecha_hora).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}
                         </span>
                       </div>
-                      <p className="text-[12px] text-gray-700">{ev.descripcion}</p>
-                      {ev.correo_enviado_en && ev.correo_destinatarios && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">Para: {ev.correo_destinatarios}</p>
-                      )}
+                      <p className="text-[12px] text-gray-700 whitespace-pre-line">{ev.descripcion}</p>
+                      {ev.correo_enviado_en && ev.correo_destinatarios && (() => {
+                        // En la instrucción el primero es el responsable; el resto va en copia.
+                        if (ev.tipo !== "INSTRUCCION") return <p className="text-[10px] text-gray-400 mt-0.5">Para: {ev.correo_destinatarios}</p>;
+                        const [para, ...cc] = ev.correo_destinatarios.split(",").map((d) => d.trim()).filter(Boolean);
+                        return <p className="text-[10px] text-gray-400 mt-0.5">Para: {para}{cc.length ? ` · CC: ${cc.join(", ")}` : ""}</p>;
+                      })()}
                       {ev.correo_error && (
                         <div className="mt-1.5 flex items-start gap-2">
                           <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 flex-1">
@@ -2424,7 +2456,7 @@ export default function OperacionDetallePage({ params }: { params: Promise<{ id:
                 <label className={labelCls}>Tipo</label>
                 <select className={inputCls} value={eventoForm.tipo}
                   onChange={(e) => setEventoForm((p) => ({ ...p, tipo: e.target.value }))}>
-                  {Object.entries(TIPO_EVENTO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {TIPOS_EVENTO_MANUAL.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </div>
               {hawbs.length > 0 && (

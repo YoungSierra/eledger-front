@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import DrawerHeader from "@/components/DrawerHeader";
 import { apiFetch } from "@/lib/api";
+import { useAviso } from "@/components/Avisos";
 import { usePageTitle } from "@/lib/menu-context";
 import { Th, useOrden, ordenarFilas } from "@/components/TablaOrden";
 
@@ -37,6 +38,7 @@ const EMPTY_FORM = { prefijo: "", numero_inicio: "1", longitud_minima: "5" };
 const EMPTY_NUEVO = { codigo: "", nombre: "", prefijo: "", numero_inicio: "1", longitud_minima: "5" };
 
 export default function ConsecutivosPage() {
+  const aviso = useAviso();
   const title = usePageTitle();
   const [lista, setLista]     = useState<Consecutivo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +98,7 @@ export default function ConsecutivosPage() {
     try {
       await apiFetch(`/consecutivos/${c.id}`, { method: "DELETE" });
       await cargar();
-    } catch (e) { alert(e instanceof Error ? e.message : "Error al eliminar"); }
+    } catch (e) { aviso.error(e instanceof Error ? e.message : "Error al eliminar"); }
   }
 
   async function guardar() {

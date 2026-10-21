@@ -16,6 +16,8 @@ interface Operacion {
   // Suma de las cotizaciones; con co-loading piezas/peso_kg solo traen la primera.
   piezas_total: number | null; peso_kg_total: number | null;
   clientes: ClienteInfo[];
+  comerciales: string[];
+  responsable_operativo_nombre: string | null;
 }
 
 interface CotizacionInfo {
@@ -60,7 +62,7 @@ export default function OperacionesPage() {
   const [pagina, setPagina]       = useState(1);
   const porPagina                 = 20;
   const { orden, alternar } = useOrden<
-    "numero" | "cliente" | "ruta" | "apertura" | "estado" | "piezas" | "peso"
+    "numero" | "cliente" | "comercial" | "operativo" | "ruta" | "apertura" | "estado" | "piezas" | "peso"
   >("apertura", "desc", () => setPagina(1));
 
   // El query solo corre al montar y al pulsar Buscar/Enter (no al cambiar filtros).
@@ -114,6 +116,8 @@ export default function OperacionesPage() {
   const ordenada = ordenarFilas(operaciones, orden, {
     numero:   (o) => o.numero,
     cliente:  (o) => o.clientes?.[0]?.nombre,
+    comercial: (o) => o.comerciales?.[0],
+    operativo: (o) => o.responsable_operativo_nombre,
     ruta:     (o) => {
       const c = cotsPorOp[o.id]?.[0];
       return c ? `${c.origen} ${c.destino}` : null;
@@ -191,11 +195,13 @@ export default function OperacionesPage() {
       {/* Tabla */}
       <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[760px]">
+          <table className="w-full min-w-[960px]">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 <Th campo="numero"   orden={orden} alternar={alternar}>Operación</Th>
                 <Th campo="cliente"  orden={orden} alternar={alternar}>Cliente</Th>
+                <Th campo="comercial" orden={orden} alternar={alternar}>Comercial</Th>
+                <Th campo="operativo" orden={orden} alternar={alternar}>Operativo</Th>
                 <Th campo="ruta"     orden={orden} alternar={alternar}>Ruta</Th>
                 <Th campo="apertura" orden={orden} alternar={alternar}>Apertura</Th>
                 <Th campo="estado"   orden={orden} alternar={alternar} align="center">Estado</Th>
@@ -206,10 +212,10 @@ export default function OperacionesPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-[12px] text-gray-400">Cargando...</td></tr>
               ) : filas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center">
+                  <td colSpan={10} className="px-4 py-10 text-center">
                     <p className="text-[12px] text-gray-400">No hay operaciones</p>
                     <p className="text-[11px] text-gray-300 mt-1">Las operaciones se crean al aprobar una cotización</p>
                   </td>
@@ -246,6 +252,12 @@ export default function OperacionesPage() {
                           ))}
                         </div>
                       ) : <span className="text-gray-300 text-[12px]">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-[12px] text-gray-600">
+                      {op.comerciales?.length ? op.comerciales.join(", ") : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-[12px] text-gray-600">
+                      {op.responsable_operativo_nombre ?? <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {cot ? (

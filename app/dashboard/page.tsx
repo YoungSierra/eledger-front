@@ -236,13 +236,12 @@ export default function DashboardPage() {
   const [zoom, setZoom] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      apiFetch<Operacion[]>("/operaciones/operaciones"),
-      apiFetch<Cotizacion[]>("/operaciones/cotizaciones"),
-    ])
-      .then(([ops, cots]) => { setOperaciones(ops); setCotizaciones(cots); })
-      .catch(() => {})   // apiFetch redirige a /login si la sesión expiró
-      .finally(() => setLoading(false));
+    // Cada una por su lado: un rol sin Cotizaciones u Operaciones recibe 403 en
+    // esa y la otra igual se pinta (apiFetch redirige a /login si la sesión expiró).
+    Promise.allSettled([
+      apiFetch<Operacion[]>("/operaciones/operaciones").then(setOperaciones),
+      apiFetch<Cotizacion[]>("/operaciones/cotizaciones").then(setCotizaciones),
+    ]).finally(() => setLoading(false));
 
     // El core es agnóstico de empresa: el nombre sale de la BD, no del código.
     apiFetch<{ razon_social: string } | null>("/empresa/publica")

@@ -638,6 +638,10 @@ function Modal({
     }));
   }
 
+  function retencionVacia(r: RetencionForm) {
+    return !r.cat_id && !r.concepto && !r.cuenta_id && !(parseFloat(r.valor) > 0);
+  }
+
   function buildPayload() {
     return {
       fecha, fecha_vencimiento: fechaVenc,
@@ -665,7 +669,8 @@ function Modal({
         valor_tercero: l.valor_tercero,
         proveedor_id: l.valor_tercero ? (l.proveedor_id || null) : null,
       })),
-      retenciones: retenciones.map(r => ({
+      // Una fila agregada sin escoger retención no lleva nada: se ignora.
+      retenciones: retenciones.filter(r => !retencionVacia(r)).map(r => ({
         tipo: r.tipo, concepto: r.concepto,
         base: r.base, porcentaje: r.porcentaje, valor: r.valor,
         cuenta_id: r.cuenta_id,
@@ -676,6 +681,8 @@ function Modal({
   function validarTerceros(): string | null {
     const sinProv = lineas.find(l => l.valor_tercero && !l.proveedor_id);
     if (sinProv) return `La línea "${sinProv.descripcion || "(sin descripción)"}" es valor para tercero: indica el proveedor.`;
+    const sinCuenta = retenciones.find(r => !retencionVacia(r) && !r.cuenta_id);
+    if (sinCuenta) return `La retención "${sinCuenta.concepto || "(sin concepto)"}" no tiene cuenta contable: elígela o quita la fila.`;
     return null;
   }
 
